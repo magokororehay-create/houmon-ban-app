@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<title>訪問スケジュール盤</title>
+<style>
+  :root{--bg:#f5f5f7;--card:#fff;--ink:#1d1d1f;--mute:#8a8a8e;--line:#e6e6ea;--pri:#0f7c80;--pri-weak:#e3f3f3;--warn:#fff3cd;--err:#ffe8e8;--px:10px;}
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;margin:0;background:var(--bg);color:var(--ink);}
+  .narrow{max-width:420px;margin:40px auto;padding:0 16px;}
+  .card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  input,select,textarea{width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:8px;font-family:inherit;background:#fff;color:var(--ink);}
+  label.lb{display:block;font-size:13px;color:var(--mute);font-weight:700;margin:12px 0 4px;}
+  button{font-size:15px;border:none;border-radius:10px;padding:10px 12px;background:var(--pri);color:#fff;cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;}
+  button.sub{background:#e6e8eb;color:var(--ink);}
+  button:disabled{opacity:.5;cursor:default;}
+  .full{width:100%;margin-top:14px;}
+  .names button{display:block;width:100%;margin-top:8px;background:var(--pri-weak);color:var(--pri);font-size:17px;}
+  .muted{color:var(--mute);font-size:13px;}
+  .hidden{display:none !important;}
+  /* 上の帯 */
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;}
+  .bar h1{font-size:17px;margin:0 6px 0 0;}
+  .bar .sp{flex:1;}
+  .bar a{color:var(--pri);font-size:13px;}
+  .badge{font-size:12px;border-radius:10px;padding:3px 10px;background:var(--warn);color:#7a5c00;}
+  #btnChanges b{display:inline-block;min-width:1.4em;border-radius:9px;background:#c0392b;color:#fff;font-size:12px;padding:1px 5px;margin-left:4px;}
+  #btnChanges b.zero{background:#aaa;}
+  .days{display:flex;gap:6px;padding:10px 12px 0;}
+  .days button{flex:1;max-width:120px;background:#e6e8eb;color:var(--ink);padding:9px 4px;}
+  .days button.on{background:var(--pri);color:#fff;}
+  .layout{display:flex;gap:12px;padding:10px 12px 90px;align-items:flex-start;}
+  .boardwrap{flex:1;min-width:0;overflow-x:auto;background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  aside{width:250px;flex:none;}
+  @media (max-width:820px){ .layout{flex-direction:column;} aside{width:100%;} }
+  @media (max-width:600px){ .bar{gap:6px;padding:8px;} .bar h1{font-size:15px;} .bar button{padding:6px 8px;font-size:13px;} #me,.bar .sp{display:none;} .layout{padding:8px 6px 90px;} }
+  /* 盤面 */
+  .board{display:flex;min-width:100%;}
+  .axis{width:42px;flex:none;position:relative;}
+  .col{flex:1;min-width:84px;border-left:1px solid var(--line);}
+  .col.daystart{border-left:2px solid #c8ccd2;}
+  .colhead{height:46px;padding:4px;text-align:center;border-bottom:1px solid var(--line);background:#fafafa;}
+  .colhead b{display:block;font-size:14px;}
+  .colhead small{font-size:11px;color:var(--mute);}
+  .colbody{position:relative;}
+  .hl{position:absolute;left:0;right:0;border-top:1px solid #f0f0f2;}
+  .axis .tm{position:absolute;right:4px;font-size:10px;color:var(--mute);transform:translateY(-50%);}
+  .off{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,#ececef,#ececef 4px,#f6f6f8 4px,#f6f6f8 8px);}
+  .vc{position:absolute;border-radius:6px;padding:2px 4px 2px 7px;font-size:11px;line-height:1.3;overflow:hidden;cursor:grab;
+      border:1px solid rgba(0,0,0,.12);border-left-width:5px;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .vc .nm{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .vc .sb{color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .vc.future{border-style:dashed;opacity:.85;}
+  .vc.dragging{opacity:.35;}
+  .vc .dot{position:absolute;top:2px;right:3px;width:8px;height:8px;border-radius:50%;background:#c0392b;}
+  .ghost{position:fixed;z-index:30;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.25);opacity:.92;}
+  .target{position:absolute;left:2px;right:2px;border-radius:6px;border:2px dashed;pointer-events:none;z-index:3;}
+  .target.ok{border-color:#2e8b57;background:rgba(46,139,87,.15);}
+  .target.near{border-color:#c79a00;background:rgba(240,190,0,.2);}
+  .target.ng{border-color:#c0392b;background:rgba(192,57,43,.15);}
+  /* 横の欄 */
+  aside h3{font-size:15px;margin:2px 0 8px;}
+  #waiting .vc{position:relative;margin-bottom:6px;min-height:40px;}
+  .legend{font-size:12px;line-height:1.9;}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px;border:1px solid rgba(0,0,0,.15);}
+  /* 下の知らせ */
+  .status{position:fixed;left:0;right:0;bottom:0;padding:10px 14px;background:#1d1d1f;color:#fff;font-size:14px;z-index:20;min-height:40px;}
+  .status.ok{background:#1e6b46;} .status.near{background:#8a6a00;} .status.ng{background:#a32d22;}
+  #msg{position:fixed;top:8px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:520px;z-index:40;}
+  .msg{padding:12px;border-radius:10px;font-size:15px;white-space:pre-line;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+  .msg.err{background:var(--err);color:#b00;} .msg.ok{background:var(--pri-weak);color:var(--pri);} .msg.wait{background:#1d1d1f;color:#fff;}
+  .ovl{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:35;padding:16px;}
+  .sheet{background:var(--card);width:100%;max-width:460px;max-height:88vh;overflow-y:auto;border-radius:16px;padding:16px;}
+  .sheet h2{font-size:17px;margin:0 0 8px;}
+  .sheet .btns{display:flex;gap:10px;margin-top:16px;}
+  .sheet .btns button{flex:1;padding:12px 8px;}
+  .kv{width:100%;border-collapse:collapse;font-size:14px;}
+  .kv td{padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:top;}
+  .kv td:first-child{color:var(--mute);width:6.5em;white-space:nowrap;}
+  .warnbox{background:var(--warn);color:#7a5c00;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:10px;}
+  .chg{padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .chg small{color:var(--mute);}
+</style>
+</head>
+<body>
+<div id="msg"></div>
+
+<div id="vLogin" class="narrow hidden"><div class="card">
+  <h2 style="font-size:18px;margin:0 0 8px">訪問スケジュール盤</h2>
+  <div class="muted">リハ部の盤面用のPINを入れてください</div>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off" style="margin-top:8px;">
+  <div id="asName" class="muted" style="margin-top:8px"></div>
+  <button id="btnPin" class="full">次へ</button>
+</div></div>
+
+<div id="vNames" class="narrow hidden"><div class="card">
+  <div class="muted">自分の名前を選んでください</div>
+  <div id="names" class="names"></div>
+</div></div>
+
+<div id="vMain" class="hidden">
+  <div class="bar">
+    <h1>訪問スケジュール盤</h1>
+    <span id="trial" class="badge hidden">試験中：本物の訪問台帳には書きません</span>
+    <span class="sp"></span>
+    <span id="me" class="muted"></span>
+    <button id="btnChanges" class="sub">前回からの変更<b id="nChanges" class="zero">0</b></button>
+    <button id="btnReload" class="sub">読み込み直す</button>
+    <button id="btnReset" class="sub hidden">試験用に写し直す</button>
+    <a href="#" id="logout">ログアウト</a>
+  </div>
+  <div class="days" id="days"></div>
+  <div class="layout">
+    <div class="boardwrap"><div class="board" id="board"></div></div>
+    <aside>
+      <div class="card">
+        <h3>待機（まだ置いていない方）</h3>
+        <div id="waiting"></div>
+        <button id="btnAdd" class="full" style="margin-top:6px">＋ 新規を待機に足す</button>
+        <div class="muted" style="margin-top:8px">カードを押したまま盤面へ動かすと置けます。スマホは長押ししてから動かします。</div>
+      </div>
+      <div class="card legend" id="legend"></div>
+    </aside>
+  </div>
+  <div id="status" class="status">カードを押したまま動かすと、置ける場所が 緑（置ける）・黄（要相談：移動10分）・赤（置けない）で出ます。</div>
+</div>
+
+<div id="ovl" class="ovl hidden"><div class="sheet" id="sheet"></div></div>
+
+<script src="logic.js"></script>
+<script>if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') document.write('<script src="mock.js"><\/script>');</script>
+<script>
+(function () {
+  'use strict';
+  var API_URL = 'https://script.google.com/macros/s/AKfycbwKjyitXofRpeoyliKkRUV0OREniPmbvZ-k_z8ZmGz8TGH9Vayb8iftUMC61jGVVt5d/exec';
+  var TOKEN_KEY = 'houmon_token', DEVICE_KEY = 'houmon_device', NAME_KEY = 'houmon_name', DAY_KEY = 'houmon_day';
+  var H = window.HoumonBan;
+  var PX = 10;   // 10分あたりの高さ（px）
+  var CITY_COLORS = [['甲賀市', '#0f7c80'], ['湖南市', '#7b5ea7'], ['日野町', '#d9822b'], ['東近江市', '#2b6cb0']];
+  var S = { ticket: '', d: null, day: '', drag: null, seq: 0 };
+
+  function $(id) { return document.getElementById(id); }
+  // 利用者名などシート由来の文字は必ず textContent で入れる（innerHTML に混ぜない）
+  function el(tag, props, kids) {
+    var e = document.createElement(tag);
+    Object.keys(props || {}).forEach(function (k) {
+      if (k === 'text') e.textContent = props[k];
+      else if (k === 'cls') e.className = props[k];
+      else if (k === 'value') e.value = props[k];
+      else if (k === 'style') e.style.cssText = props[k];
+      else if (k.indexOf('on') === 0) e.addEventListener(k.slice(2), props[k]);
+      else e.setAttribute(k, props[k]);
+    });
+    (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
+  }
+  function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+  function show(id) { ['vLogin', 'vNames', 'vMain'].forEach(function (v) { $(v).classList.toggle('hidden', v !== id); }); if (id === 'vLogin') showAsName(); }
+  function msg(text, kind) {
+    var m = $('msg'); clear(m);
+    if (text) m.appendChild(el('div', { cls: 'msg ' + (kind || 'err'), text: text }));
+    if (kind === 'ok') setTimeout(function () { if (m.textContent === text) clear(m); }, 2500);
+  }
+  $('msg').addEventListener('click', function () { clear(this); });
+  function status(text, kind) { var s = $('status'); s.textContent = text; s.className = 'status' + (kind ? ' ' + kind : ''); }
+  function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function deviceId() {
+    var v = load(DEVICE_KEY);
+    if (!v) { v = 'd' + Math.random().toString(36).slice(2) + Date.now().toString(36); store(DEVICE_KEY, v); }
+    return v.slice(0, 64);
+  }
+  function newRequestId() { try { return crypto.randomUUID(); } catch (e) { return 'r' + Math.random().toString(36).slice(2) + Date.now().toString(36); } }
+  function md(ymd) { return ymd ? (+ymd.slice(5, 7)) + '/' + (+ymd.slice(8, 10)) : ''; }
+  function showAsName() {
+    var box = $('asName'); clear(box);
+    var n = load(NAME_KEY);
+    if (!n) return;
+    box.appendChild(el('span', { text: n + ' さんとして入ります　' }));
+    box.appendChild(el('a', { href: '#', text: '名前を変える', onclick: function (e) { e.preventDefault(); store(NAME_KEY, null); showAsName(); } }));
+  }
+
+  // Google 側の返事が遅れる障害に備え、返事が HEDGE_MS 来なければ同じ依頼を重ねて送る（書き込みは同じ requestId なので1回しか書かれない）。
+  var SEND_MAX = 5, HEDGE_MS = 8000, ATTEMPT_TIMEOUT_MS = 20000;
+  function post(body) {
+    if (window.MOCK_API) {
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () {
+          var j = window.MOCK_API(JSON.parse(JSON.stringify(body)));
+          if (j.ok) resolve(j.data); else { var e = new Error(j.error); e.conflict = !!j.conflict; if (j.authError && body.action !== 'login') { store(TOKEN_KEY, null); show('vLogin'); } reject(e); }
+        }, 150);
+      });
+    }
+    if (!API_URL) return Promise.reject(new Error('API の URL が未設定です（管理者へ連絡してください）'));
+    return new Promise(function (resolve, reject) {
+      var sent = 0, pending = 0, done = false, lastErr = null, ctls = [], hedgeTimer = null;
+      function finish(ok, val) {
+        if (done) return;
+        done = true; clearTimeout(hedgeTimer);
+        ctls.forEach(function (c) { try { c.abort(); } catch (e) {} });
+        if (ok) resolve(val); else reject(val);
+      }
+      function settled() {
+        if (done || pending > 0) return;
+        if (lastErr) { finish(false, lastErr); return; }
+        if (sent < SEND_MAX) { setTimeout(fire, 500 * Math.pow(2, sent - 1)); return; }
+        finish(false, new Error('通信がうまくいきませんでした。電波の良い所でもう一度お試しください'));
+      }
+      function fire() {
+        if (done || sent >= SEND_MAX) return;
+        sent++; pending++;
+        if (sent > 1) msg('通信に時間がかかっています。もう一度送っています（' + sent + '/' + SEND_MAX + '）…', 'wait');
+        var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        if (ctl) ctls.push(ctl);
+        var timer = ctl ? setTimeout(function () { ctl.abort(); }, ATTEMPT_TIMEOUT_MS) : null;
+        fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (!j || typeof j !== 'object') throw new Error('bad');
+            pending--;
+            if (j.ok) { finish(true, j.data); return; }
+            if (j.authError && body.action !== 'login') { store(TOKEN_KEY, null); show('vLogin'); finish(false, new Error(j.error)); return; }
+            lastErr = new Error(j.error || 'エラーが発生しました');
+            lastErr.conflict = !!j.conflict;
+            settled();
+          })
+          .catch(function () { pending--; settled(); })
+          .then(function () { if (timer) clearTimeout(timer); });
+        clearTimeout(hedgeTimer);
+        hedgeTimer = setTimeout(function () { if (!done && !lastErr) fire(); }, HEDGE_MS);
+      }
+      fire();
+    });
+  }
+  function authed(action, extra) { return post(Object.assign({ action: action, token: load(TOKEN_KEY), requestId: newRequestId() }, extra || {})); }
+
+  // ── ログイン ──
+  $('btnPin').addEventListener('click', async function () {
+    var btn = this; btn.disabled = true; msg('確認中…', 'wait');
+    try {
+      var d = await post({ action: 'login', pin: $('pin').value, deviceId: deviceId(), name: load(NAME_KEY), requestId: newRequestId() });
+      $('pin').value = ''; msg('');
+      if (d.token) { store(TOKEN_KEY, d.token); await start(); return; }
+      S.ticket = d.ticket;
+      var box = $('names'); clear(box);
+      d.names.forEach(function (n) { box.appendChild(el('button', { text: n, onclick: function () { choose(n); } })); });
+      show('vNames');
+    } catch (e) { msg(e.message); } finally { btn.disabled = false; }
+  });
+  $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btnPin').click(); });
+  async function choose(name) {
+    try {
+      msg('確認中…', 'wait');
+      var d = await post({ action: 'chooseName', ticket: S.ticket, name: name, requestId: newRequestId() });
+      S.ticket = ''; store(TOKEN_KEY, d.token); store(NAME_KEY, d.name); msg('');
+      await start();
+    } catch (e) { msg(e.message); show('vLogin'); }
+  }
+  $('logout').addEventListener('click', async function (e) {
+    e.preventDefault();
+    try { await authed('logout'); } catch (x) {}
+    store(TOKEN_KEY, null); S.d = null; clear($('board')); clear($('waiting')); show('vLogin');
+  });
+
+  async function start() {
+    S.d = null; clear($('board')); clear($('waiting'));
+    try {
+      msg('読み込み中…', 'wait');
+      await reload();
+      msg('');
+      show('vMain');
+    } catch (e) { msg(e.message); show('vLogin'); }
+  }
+  async function reload() {
+    var my = ++S.seq;
+    var d = await authed('board');
+    if (my !== S.seq) return;
+    setBoard(d);
+  }
+  function setBoard(d) {
+    S.d = d;
+    S.settings = H.normalizeSettings(d.settings);
+    S.places = H.normalizePlaces(d.places);
+    S.areas = H.normalizeAreas(d.areas);
+    if (!S.day) S.day = load(DAY_KEY) || todayWeekday(d.today);
+    if (S.day !== '全' && S.settings.weekdays.indexOf(S.day) < 0) S.day = S.settings.weekdays[0];
+    $('me').textContent = d.me + ' さん' + (d.admin ? '（管理者）' : '');
+    $('trial').classList.toggle('hidden', !d.trial);
+    $('btnReset').classList.toggle('hidden', !(d.admin && d.trial));
+    var n = d.changes.length;
+    $('nChanges').textContent = n; $('nChanges').className = n ? '' : 'zero';
+    render();
+  }
+  function todayWeekday(ymd) { return ['日', '月', '火', '水', '木', '金', '土'][new Date(ymd + 'T00:00:00Z').getUTCDay()]; }
+  $('btnReload').addEventListener('click', async function () {
+    try { msg('読み込み中…', 'wait'); await reload(); msg('読み込み直しました', 'ok'); } catch (e) { msg(e.message); }
+  });
+
+  // ── 盤面を描く ──
+  function cityColor(area) {
+    for (var i = 0; i < CITY_COLORS.length; i++) if (String(area || '').indexOf(CITY_COLORS[i][0]) >= 0) return CITY_COLORS[i][1];
+    return '#b0b0b5';
+  }
+  function shortArea(area) { return String(area || '').replace(/^(.+?郡)?.+?[市町村](?=.)/, ''); }
+  function shown(r) { return H.parseHm(r['開始']) !== null && (H.isActive(r, S.d.today) || (r['開始日'] && r['開始日'] > S.d.today)); }
+
+  function render() {
+    var d = S.d, st = S.settings, view = st.view;
+    var days = S.day === '全' ? st.weekdays : [S.day];
+    // 曜日のタブ
+    var dbox = $('days'); clear(dbox);
+    st.weekdays.concat(['全']).forEach(function (w) {
+      dbox.appendChild(el('button', { cls: w === S.day ? 'on' : '', text: w === '全' ? '全曜日' : w + '曜日',
+        onclick: function () { S.day = w; store(DAY_KEY, w); render(); } }));
+    });
+    var grid = H.renderWeekGrid(d.rows, S.places, st, d.today, S.areas);
+    var kai = H.weekNumbers(d.rows, d.today);
+    var changed = {};
+    d.changes.forEach(function (c) { changed[c['台帳ID']] = true; });
+    var height = (view.to - view.from) / 10 * PX;
+    var board = $('board'); clear(board);
+    // 時刻の軸
+    var axis = el('div', { cls: 'axis' }, [el('div', { cls: 'colhead', style: 'background:#fff' })]);
+    var ab = el('div', { cls: 'colbody', style: 'height:' + height + 'px' });
+    for (var t = view.from; t <= view.to; t += 30) ab.appendChild(el('div', { cls: 'tm', style: 'top:' + ((t - view.from) / 10 * PX) + 'px', text: H.fmtHm(t) }));
+    axis.appendChild(ab); board.appendChild(axis);
+    days.forEach(function (day, di) {
+      st.staff.forEach(function (staff, si) {
+        var gi = 1 + st.weekdays.indexOf(day) * st.staff.length + si;
+        var head = el('div', { cls: 'colhead' }, [
+          el('b', { text: (days.length > 1 ? day + ' ' : '') + staff }),
+          el('small', { text: grid.values[2][gi] + '件・移動' + grid.values[grid.values.length - 1][gi] + '分' })]);
+        var body = el('div', { cls: 'colbody', style: 'height:' + height + 'px' });
+        body.dataset.day = day; body.dataset.staff = staff;
+        for (var t2 = view.from; t2 < view.to; t2 += 30) body.appendChild(el('div', { cls: 'hl', style: 'top:' + ((t2 - view.from) / 10 * PX) + 'px' }));
+        var hrs = st.staffHours[staff] || view;
+        var band = function (a, b) { if (b > a) body.appendChild(el('div', { cls: 'off', style: 'top:' + ((a - view.from) / 10 * PX) + 'px;height:' + ((b - a) / 10 * PX) + 'px' })); };
+        band(view.from, Math.max(view.from, hrs.from)); band(Math.min(view.to, hrs.to), view.to);
+        if (st.lunch) band(Math.max(view.from, st.lunch.from), Math.min(view.to, st.lunch.to));
+        // 同じ開始の枠は横に並べる（週で分けた枠・入院中の枠に入れた人）。行く人を先に。
+        var groups = {};
+        d.rows.filter(function (r) { return r['担当'] === staff && r['曜日'] === day && shown(r); }).forEach(function (r) {
+          (groups[r['開始']] = groups[r['開始']] || []).push(r);
+        });
+        Object.keys(groups).forEach(function (k) {
+          var g = groups[k].sort(function (a, b) { return (H.shownStatus(a) === '入院中') - (H.shownStatus(b) === '入院中'); });
+          g.forEach(function (r, i) {
+            var top = (H.parseHm(r['開始']) - view.from) / 10 * PX;
+            var c = card(r, kai, changed);
+            c.style.cssText += ';top:' + (top + 1) + 'px;height:' + (st.visitMin / 10 * PX - 2) + 'px;left:calc(' + (100 / g.length * i) + '% + 2px);width:calc(' + (100 / g.length) + '% - 4px)';
+            body.appendChild(c);
+          });
+        });
+        board.appendChild(el('div', { cls: 'col' + (si === 0 && di > 0 ? ' daystart' : '') }, [head, body]));
+      });
+    });
+    // 待機
+    var wbox = $('waiting'); clear(wbox);
+    var waits = H.waitingRows(d.rows, d.today);
+    if (!waits.length) wbox.appendChild(el('div', { cls: 'muted', text: '待機の方はいません' }));
+    waits.forEach(function (r) { wbox.appendChild(card(r, kai, changed)); });
+    renderLegend();
+  }
+
+  function card(r, kai, changed) {
+    var stt = H.shownStatus(r);
+    var label = H.cellLabel(r, S.places, kai[r['台帳ID']] || '');
+    var notes = [];
+    if (r['開始日'] && r['開始日'] > S.d.today) notes.push(md(r['開始日']) + 'から');
+    if (r['終了日']) notes.push(md(r['終了日']) + 'まで');
+    if (stt === '入院中') notes.push('入院中');
+    var sub = [shortArea(r['地区']) || '地区なし'].concat(notes).join('・');
+    var c = el('div', { cls: 'vc' + (r['開始日'] && r['開始日'] > S.d.today ? ' future' : ''),
+      style: 'background:' + (H.STATUS_COLORS[stt] || '#fff') + ';border-left-color:' + cityColor(r['地区']) }, [
+      el('div', { cls: 'nm', text: label }), el('div', { cls: 'sb', text: sub })]);
+    if (changed[r['台帳ID']]) c.appendChild(el('span', { cls: 'dot', title: '他の人が変えました' }));
+    c.addEventListener('pointerdown', function (e) { press(e, r, c); });
+    return c;
+  }
+
+  function renderLegend() {
+    var lg = $('legend'); clear(lg);
+    lg.appendChild(el('h3', { text: '色の見方' }));
+    [['通常', '#ffffff'], ['新規予定', H.STATUS_COLORS['新規予定']], ['入院中', H.STATUS_COLORS['入院中']], ['調整中', H.STATUS_COLORS['調整中']],
+     ['終了予定（終了日あり）', H.STATUS_COLORS['終了予定']]].forEach(function (x) {
+      lg.appendChild(el('div', {}, [el('i', { style: 'background:' + x[1] }), document.createTextNode(x[0])]));
+    });
+    lg.appendChild(el('div', { cls: 'muted', text: 'カードの左の帯は市町：' }));
+    CITY_COLORS.forEach(function (x) { lg.appendChild(el('div', {}, [el('i', { style: 'background:' + x[1] }), document.createTextNode(x[0])])); });
+    lg.appendChild(el('div', { cls: 'muted', text: '点線のカードは、これから始まる枠です。赤い点は前回から他の人が変えた枠です。' }));
+  }
+
+  // ── ドラッグ ──
+  // マウスは5px動かしたら、指は長押し（0.3秒）してからドラッグを始める。動かさずに離したら詳細を開く。
+  function press(e, r, c) {
+    if (e.button && e.button !== 0) return;
+    var p = { x: e.clientX, y: e.clientY, touch: e.pointerType !== 'mouse', started: false, timer: null };
+    var rect = c.getBoundingClientRect();
+    var begin = function (ev) {
+      p.started = true;
+      S.drag = { row: r, card: c, offX: p.x - rect.left, offY: p.y - rect.top, target: null };
+      var gh = c.cloneNode(true); gh.classList.add('ghost');
+      gh.style.width = rect.width + 'px'; gh.style.height = rect.height + 'px'; gh.style.left = rect.left + 'px'; gh.style.top = rect.top + 'px';
+      document.body.appendChild(gh); S.drag.ghost = gh;
+      c.classList.add('dragging');
+      if (ev) moveDrag(ev);
+    };
+    if (p.touch) p.timer = setTimeout(function () { begin(null); if (navigator.vibrate) navigator.vibrate(15); }, 300);
+    var onMove = function (ev) {
+      if (!p.started) {
+        var dist = Math.abs(ev.clientX - p.x) + Math.abs(ev.clientY - p.y);
+        if (p.touch) { if (dist > 10) cleanup(); return; }
+        if (dist > 5) begin(ev);
+        return;
+      }
+      ev.preventDefault();
+      moveDrag(ev);
+    };
+    var onUp = function (ev) {
+      var was = p.started;
+      cleanup();
+      if (!was) { openDetail(r); return; }
+      endDrag(ev);
+    };
+    var cleanup = function () {
+      clearTimeout(p.timer);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+    };
+    var onCancel = function () { cleanup(); cancelDrag(); };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+  }
+
+  function colAt(x, y) {
+    var els = document.elementsFromPoint(x, y);
+    for (var i = 0; i < els.length; i++) if (els[i].classList && els[i].classList.contains('colbody') && els[i].dataset.staff) return els[i];
+    return null;
+  }
+
+  function moveDrag(ev) {
+    var dg = S.drag; if (!dg) return;
+    dg.ghost.style.left = (ev.clientX - dg.offX) + 'px';
+    dg.ghost.style.top = (ev.clientY - dg.offY) + 'px';
+    var col = colAt(ev.clientX, ev.clientY);
+    if (dg.box) { dg.box.remove(); dg.box = null; }
+    if (!col) { dg.target = null; status('ここには置けません（盤面の列の上で離してください）', 'ng'); return; }
+    var st = S.settings, rect = col.getBoundingClientRect();
+    var t = st.view.from + Math.round((ev.clientY - dg.offY - rect.top) / PX) * 10;
+    t = Math.max(st.view.from, Math.min(st.view.to - st.visitMin, t));
+    var cand = Object.assign({}, dg.row, { '担当': col.dataset.staff, '曜日': col.dataset.day, '開始': H.fmtHm(t) });
+    var chk = H.placementCheck(S.d.rows, S.places, st, S.areas, S.d.today, cand);
+    var same = dg.row['担当'] === cand['担当'] && dg.row['曜日'] === cand['曜日'] && dg.row['開始'] === cand['開始'];
+    dg.target = same ? null : { cand: cand, chk: chk };
+    dg.box = el('div', { cls: 'target ' + chk.level, style: 'top:' + ((t - st.view.from) / 10 * PX) + 'px;height:' + (st.visitMin / 10 * PX) + 'px' });
+    col.appendChild(dg.box);
+    var where = cand['曜日'] + ' ' + cand['担当'] + ' ' + cand['開始'] + '〜' + H.fmtHm(t + st.visitMin);
+    if (same) status(where + '（元の場所）');
+    else if (chk.level === 'ok') status(where + '：置けます', 'ok');
+    else if (chk.level === 'near') status(where + '：要相談 ' + chk.reason, 'near');
+    else status(where + '：置けません（' + chk.reason + '）', 'ng');
+  }
+  function cancelDrag() {
+    var dg = S.drag; if (!dg) return;
+    if (dg.ghost) dg.ghost.remove();
+    if (dg.box) dg.box.remove();
+    dg.card.classList.remove('dragging');
+    S.drag = null;
+  }
+  function endDrag() {
+    var dg = S.drag;
+    var target = dg && dg.target;
+    cancelDrag();
+    if (!target) return;
+    if (target.chk.level === 'ng') { status('置けません：' + target.chk.reason, 'ng'); return; }
+    confirmPlace(dg.row, target.cand, target.chk);
+  }
+
+  // ── 確定の前の確認 ──
+  function openSheet(kids) { var s = $('sheet'); clear(s); kids.forEach(function (k) { if (k) s.appendChild(k); }); $('ovl').classList.remove('hidden'); }
+  function closeSheet() { $('ovl').classList.add('hidden'); clear($('sheet')); }
+  $('ovl').addEventListener('click', function (e) { if (e.target === this) closeSheet(); });
+
+  function confirmPlace(row, cand, chk) {
+    var waiting = H.parseHm(row['開始']) === null;
+    var from = el('input', { type: 'date', min: S.d.today });
+    var to = cand['曜日'] + ' ' + cand['担当'] + ' ' + cand['開始'];
+    openSheet([
+      el('h2', { text: waiting ? '新規の方を置きます' : '枠を動かします' }),
+      el('table', { cls: 'kv' }, [
+        el('tr', {}, [el('td', { text: '利用者' }), el('td', { text: row['利用者'] })]),
+        waiting ? null : el('tr', {}, [el('td', { text: '今' }), el('td', { text: row['曜日'] + ' ' + row['担当'] + ' ' + row['開始'] })]),
+        el('tr', {}, [el('td', { text: waiting ? '置き先' : '動かし先' }), el('td', { text: to })])]),
+      chk.level === 'near' ? el('div', { cls: 'warnbox', text: '要相談：' + chk.reason }) : null,
+      el('label', { cls: 'lb', text: waiting ? '初回の日（分からなければ空のまま）' : 'いつから（空なら今週から）' }), from,
+      el('div', { cls: 'muted', style: 'margin-top:6px', text: waiting ? '' : '先の日付を入れると、その前日までは今の枠のまま残り、その日から新しい枠になります。' }),
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
+        el('button', { text: '確定する', onclick: function () {
+          var ch = { type: waiting ? 'place' : 'move', id: row['台帳ID'], '担当': cand['担当'], '曜日': cand['曜日'], '開始': cand['開始'], from: from.value };
+          closeSheet(); save([ch], (waiting ? '置きました：' : '動かしました：') + row['利用者'] + ' → ' + to);
+        } })])]);
+  }
+
+  async function save(changes, done) {
+    try {
+      msg('保存中…', 'wait');
+      var d = await authed('save', { requestId: newRequestId(), version: S.d.version, changes: changes });
+      setBoard(d);
+      msg(done || '保存しました', 'ok');
+      status(done || '保存しました', 'ok');
+    } catch (e) {
+      if (e.conflict || /他の人が先に/.test(e.message)) {
+        msg(e.message);
+        try { await reload(); } catch (x) {}
+      } else msg(e.message);
+    }
+  }
+
+  // ── 詳細（押しただけのとき）──
+  function openDetail(r) {
+    var waiting = H.parseHm(r['開始']) === null;
+    var kv = function (k, v) { return v ? el('tr', {}, [el('td', { text: k }), el('td', { text: v })]) : null; };
+    openSheet([
+      el('h2', { text: r['利用者'] }),
+      el('table', { cls: 'kv' }, [
+        kv('枠', waiting ? '待機（まだ置いていません）' : r['曜日'] + ' ' + r['担当'] + ' ' + r['開始']),
+        kv('場所', r['場所']), kv('地区', r['地区']), kv('頻度', r['頻度']), kv('状態', H.shownStatus(r)),
+        kv('開始日', r['開始日']), kv('終了日', r['終了日']), kv('保険区分', r['保険区分']), kv('代行優先度', r['代行優先度']),
+        kv('メモ', r['メモ']), kv('最後に変えた人', r['更新者'] ? r['更新者'] + '（' + r['更新日時'] + '）' : '')]),
+      waiting ? null : el('div', { cls: 'muted', style: 'margin-top:10px', text: '増回・減回・終了・入院は次の段で盤面から扱えるようにします。今はシートの訪問台帳を直してください。' }),
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: '閉じる', onclick: closeSheet }),
+        waiting ? el('button', { text: '待機から消す', style: 'background:#a32d22', onclick: function () {
+          if (this.dataset.armed) { closeSheet(); save([{ type: 'deleteWaiting', id: r['台帳ID'] }], '待機から消しました：' + r['利用者']); return; }
+          this.dataset.armed = '1'; this.textContent = 'もう一度押すと消します';
+        } }) : null])]);
+  }
+
+  // ── 新規を待機に足す ──
+  $('btnAdd').addEventListener('click', function () {
+    var sel = function (opts) { var s = el('select'); opts.forEach(function (o) { s.appendChild(el('option', { value: o[0], text: o[1] })); }); return s; };
+    var name = el('input', { type: 'text', placeholder: '氏名' });
+    var place = sel(S.d.places.map(function (p) { return [p['場所'], p['場所']]; }));
+    var area = sel([['', '分からない（移動は20分で見る）']].concat(S.d.areas.map(function (a) { return [a['地区'], a['地区']]; })));
+    var freq = sel(H.FREQS.map(function (f) { return [f, f]; }));
+    var ins = sel([['', '（なし・介護）'], ['医', '医療'], ['支', '要支援']]);
+    var pr = sel([['', '（なし）'], ['A', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D']]);
+    var memo = el('input', { type: 'text', placeholder: '希望の曜日・時間など' });
+    var err = el('div', { cls: 'muted', style: 'color:#b00' });
+    openSheet([
+      el('h2', { text: '新規の方を待機に足す' }),
+      el('label', { cls: 'lb', text: '利用者' }), name, el('label', { cls: 'lb', text: '場所' }), place,
+      el('label', { cls: 'lb', text: '地区（市町＋大字）' }), area, el('label', { cls: 'lb', text: '頻度' }), freq,
+      el('label', { cls: 'lb', text: '保険区分' }), ins, el('label', { cls: 'lb', text: '代行優先度' }), pr,
+      el('label', { cls: 'lb', text: 'メモ' }), memo, err,
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
+        el('button', { text: '待機に足す', onclick: function () {
+          if (!name.value.trim()) { err.textContent = '利用者を入れてください'; return; }
+          closeSheet();
+          save([{ type: 'addWaiting', '利用者': name.value.trim(), '場所': place.value, '地区': area.value, '頻度': freq.value,
+                  '保険区分': ins.value, '代行優先度': pr.value, 'メモ': memo.value.trim() }], '待機に足しました：' + name.value.trim());
+        } })])]);
+  });
+
+  // ── 前回からの変更 ──
+  $('btnChanges').addEventListener('click', function () {
+    var list = S.d.changes;
+    openSheet([
+      el('h2', { text: '前回からの変更（他の人）' }),
+      list.length ? null : el('div', { cls: 'muted', text: '前回確認してから、他の人の変更はありません。' }),
+      el('div', {}, list.map(function (h) {
+        return el('div', { cls: 'chg' }, [
+          el('div', { text: h['誰が'] + '：' + h['種類'] + '　' + h['利用者'] }),
+          el('small', { text: h['日時'].slice(5, 16) + '　' + [h['前'], h['後']].filter(Boolean).join(' → ') + (h['効く日'] ? '（' + md(h['効く日']) + 'から）' : '') })]);
+      })),
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: '閉じる', onclick: closeSheet }),
+        list.length ? el('button', { text: '確認した', onclick: async function () {
+          closeSheet();
+          try { await authed('seen'); await reload(); msg('確認済みにしました', 'ok'); } catch (e) { msg(e.message); }
+        } }) : null])]);
+  });
+
+  // ── 試験用に写し直す（管理者）──
+  $('btnReset').addEventListener('click', function () {
+    openSheet([
+      el('h2', { text: '試験用に写し直しますか' }),
+      el('div', { text: '試験の台帳を、本物の訪問台帳（毎朝の取り込みの結果）で上書きします。試験で動かした内容は消えます。' }),
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
+        el('button', { text: '写し直す', onclick: async function () {
+          closeSheet();
+          try { msg('写し直しています…', 'wait'); setBoard(await authed('resetTrial')); msg('写し直しました', 'ok'); } catch (e) { msg(e.message); }
+        } })])]);
+  });
+
+  // ── 起動 ──
+  (async function () {
+    if (window.MOCK_READY) await window.MOCK_READY;
+    if (load(TOKEN_KEY)) await start(); else show('vLogin');
+  })();
+})();
+</script>
+</body>
+</html>
