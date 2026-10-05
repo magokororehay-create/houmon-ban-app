@@ -26,8 +26,8 @@ var DEFAULT_SETTINGS = {
   '近い移動（分）': '10',
   '遠い距離（km）': '12',   // 地区の代表点の直線距離がこれを超えれば、移動は「遠い移動（分）」を求める（0で使わない）
   '遠い移動（分）': '30',
-  '距離→分の係数': '2',
-  '事業所の地区': '',       // 例 甲賀市水口町山。入れると週間表の移動に事業所との行き帰りを足す（地区タブにその地区が要る）     // 週間表の「移動（分）」の目安＝直線距離(km)×これ（5分単位で切り上げ）
+  '距離→分の係数': '2',     // 週間表の「移動（分）」の目安＝直線距離(km)×これ（5分単位で切り上げ）
+  '事業所の地区': '',       // 例 甲賀市水口町山。入れると週間表の移動に事業所との行き帰りを足す（地区タブにその地区が要る）
   '表示する時間帯': '8:30-17:30',
   '昼休み': '12:00-13:00',
   'スタッフ名簿': '末廣、関札、松岡、伊地知',
@@ -589,5 +589,35 @@ function changeDigest(history, day, exclude) {
   return { total: total, lines: lines };
 }
 
-  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange };
+// 盤面の下書き（変更の並び）を、保存する前にまとめる（元の配列は変えない）。
+// 同じ枠を今から続けて動かした・置き直した分は、最初の変更の位置に最後の置き先1回として残す。
+// 下書きの中で足して消した待機の方は、両方とも落とす。先の日付からの移動（from あり）はまとめない。
+function compressChanges(changes) {
+  var out = [];
+  (changes || []).forEach(function (ch) {
+    var c = {};
+    Object.keys(ch).forEach(function (k) { c[k] = ch[k]; });
+    if (c.type === 'deleteWaiting') {
+      var j = -1;
+      out.forEach(function (o, i) { if (o.type === 'addWaiting' && o.tempId === c.id) j = i; });
+      if (j >= 0) {
+        out = out.filter(function (o, i) { return i !== j && o.id !== c.id; });
+        return;
+      }
+    }
+    if (c.type === 'move' && !c.from) {
+      for (var i = out.length - 1; i >= 0; i--) {
+        var o = out[i];
+        if (o.id === c.id && (o.type === 'place' || (o.type === 'move' && !o.from))) {
+          o['担当'] = c['担当']; o['曜日'] = c['曜日']; o['開始'] = c['開始'];
+          return;
+        }
+      }
+    }
+    out.push(c);
+  });
+  return out;
+}
+
+  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange, compressChanges: compressChanges };
 })();

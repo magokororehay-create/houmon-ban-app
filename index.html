@@ -29,6 +29,10 @@
   .badge{font-size:12px;border-radius:10px;padding:3px 10px;background:var(--warn);color:#7a5c00;}
   #btnChanges b{display:inline-block;min-width:1.4em;border-radius:9px;background:#c0392b;color:#fff;font-size:12px;padding:1px 5px;margin-left:4px;}
   #btnChanges b.zero{background:#aaa;}
+  .draftbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 12px 0;padding:8px 12px;border-radius:10px;background:#fff3cd;border:2px solid #e0b400;color:#5c4500;}
+  .draftbar b{flex:1;min-width:12em;font-size:15px;}
+  .draftbar button{padding:8px 12px;font-size:14px;}
+  .vc.drafted{outline:2px dashed #2b6cb0;outline-offset:1px;}
   .days{display:flex;gap:6px;padding:10px 12px 0;}
   .days button{flex:1;max-width:120px;background:#e6e8eb;color:var(--ink);padding:9px 4px;}
   .days button.on{background:var(--pri);color:#fff;}
@@ -112,6 +116,12 @@
     <button id="btnReset" class="sub hidden">試験用に写し直す</button>
     <a href="#" id="logout">ログアウト</a>
   </div>
+  <div class="draftbar hidden" id="draftBar">
+    <b id="draftText"></b>
+    <button id="btnUndo" class="sub">1つ戻す</button>
+    <button id="btnDiscard" class="sub">下書きを捨てる</button>
+    <button id="btnCommit">まとめて確定</button>
+  </div>
   <div class="days" id="days"></div>
   <div class="layout">
     <div class="boardwrap"><div class="board" id="board"></div></div>
@@ -125,7 +135,7 @@
       <div class="card legend" id="legend"></div>
     </aside>
   </div>
-  <div id="status" class="status">カードを押したまま動かすと、置ける場所が 緑（置ける）・黄（要相談：移動10分）・赤（置けない）で出ます。</div>
+  <div id="status" class="status">カードを押したまま動かすと、置ける場所が 緑（置ける）・黄（要相談：移動10分）・赤（置けない）で出ます。動かしたものは下書きになり、「まとめて確定」で保存します。</div>
 </div>
 
 <div id="ovl" class="ovl hidden"><div class="sheet" id="sheet"></div></div>
@@ -140,7 +150,8 @@
   var H = window.HoumonBan;
   var PX = 10;   // 10分あたりの高さ（px）
   var CITY_COLORS = [['甲賀市', '#0f7c80'], ['湖南市', '#7b5ea7'], ['日野町', '#d9822b'], ['東近江市', '#2b6cb0']];
-  var S = { ticket: '', d: null, day: '', drag: null, seq: 0 };
+  // base：サーバの台帳。drafts：まだ保存していない変更（動かした順）。rows：base に drafts を当てた、画面に出す形。
+  var S = { ticket: '', d: null, day: '', drag: null, seq: 0, base: [], drafts: [], rows: [], tmp: 0 };
 
   function $(id) { return document.getElementById(id); }
   // 利用者名などシート由来の文字は必ず textContent で入れる（innerHTML に混ぜない）
@@ -261,6 +272,8 @@
   }
   $('logout').addEventListener('click', async function (e) {
     e.preventDefault();
+    if (S.drafts.length && !this.dataset.armed) { this.dataset.armed = '1'; this.textContent = '下書き' + S.drafts.length + '件を捨ててログアウト'; return; }
+    delete this.dataset.armed; this.textContent = 'ログアウト'; S.drafts = [];
     try { await authed('logout'); } catch (x) {}
     store(TOKEN_KEY, null); S.d = null; clear($('board')); clear($('waiting')); show('vLogin');
   });
@@ -282,6 +295,9 @@
   }
   function setBoard(d) {
     S.d = d;
+    S.base = d.rows;
+    var lost = rebuild();
+    if (lost) msg('下書きのうち ' + lost + ' 件は、新しい盤面には当てられなかったので外しました');
     S.settings = H.normalizeSettings(d.settings);
     S.places = H.normalizePlaces(d.places);
     S.areas = H.normalizeAreas(d.areas);
@@ -293,6 +309,25 @@
     var n = d.changes.length;
     $('nChanges').textContent = n; $('nChanges').className = n ? '' : 'zero';
     render();
+  }
+  // base に下書きを順に当て直す（読み込み直した後も下書きを残すため）。当てられなかった下書きは外し、その数を返す。
+  function rebuild() {
+    var rows = S.base, kept = [];
+    S.drafts.forEach(function (ch) {
+      try {
+        rows = H.applyChange(rows, ch, S.d.today, ch.tempId || 'T-none', S.d.me, '（下書き）').rows;
+        kept.push(ch);
+      } catch (e) { /* 他の人の保存で、もう当てられない */ }
+    });
+    var lost = S.drafts.length - kept.length;
+    S.drafts = kept; S.rows = rows;
+    return lost;
+  }
+  function addDraft(ch, done) {
+    S.drafts.push(ch);
+    rebuild();
+    render();
+    status('下書き：' + done + '（まだ保存していません）', 'near');
   }
   function todayWeekday(ymd) { return ['日', '月', '火', '水', '木', '金', '土'][new Date(ymd + 'T00:00:00Z').getUTCDay()]; }
   $('btnReload').addEventListener('click', async function () {
@@ -316,10 +351,14 @@
       dbox.appendChild(el('button', { cls: w === S.day ? 'on' : '', text: w === '全' ? '全曜日' : w + '曜日',
         onclick: function () { S.day = w; store(DAY_KEY, w); render(); } }));
     });
-    var grid = H.renderWeekGrid(d.rows, S.places, st, d.today, S.areas);
-    var kai = H.weekNumbers(d.rows, d.today);
+    var grid = H.renderWeekGrid(S.rows, S.places, st, d.today, S.areas);
+    var kai = H.weekNumbers(S.rows, d.today);
     var changed = {};
     d.changes.forEach(function (c) { changed[c['台帳ID']] = true; });
+    S.draftIds = {};
+    S.drafts.forEach(function (c) { S.draftIds[c.id || c.tempId] = true; });
+    $('draftBar').classList.toggle('hidden', !S.drafts.length);
+    $('draftText').textContent = '下書き ' + S.drafts.length + '件（まだ保存していません）';
     var height = (view.to - view.from) / 10 * PX;
     var board = $('board'); clear(board);
     // 時刻の軸
@@ -342,7 +381,7 @@
         if (st.lunch) band(Math.max(view.from, st.lunch.from), Math.min(view.to, st.lunch.to));
         // 同じ開始の枠は横に並べる（週で分けた枠・入院中の枠に入れた人）。行く人を先に。
         var groups = {};
-        d.rows.filter(function (r) { return r['担当'] === staff && r['曜日'] === day && shown(r); }).forEach(function (r) {
+        S.rows.filter(function (r) { return r['担当'] === staff && r['曜日'] === day && shown(r); }).forEach(function (r) {
           (groups[r['開始']] = groups[r['開始']] || []).push(r);
         });
         Object.keys(groups).forEach(function (k) {
@@ -359,7 +398,7 @@
     });
     // 待機
     var wbox = $('waiting'); clear(wbox);
-    var waits = H.waitingRows(d.rows, d.today);
+    var waits = H.waitingRows(S.rows, d.today);
     if (!waits.length) wbox.appendChild(el('div', { cls: 'muted', text: '待機の方はいません' }));
     waits.forEach(function (r) { wbox.appendChild(card(r, kai, changed)); });
     renderLegend();
@@ -377,6 +416,7 @@
       style: 'background:' + (H.STATUS_COLORS[stt] || '#fff') + ';border-left-color:' + cityColor(r['地区']) }, [
       el('div', { cls: 'nm', text: label }), el('div', { cls: 'sb', text: sub })]);
     if (changed[r['台帳ID']]) c.appendChild(el('span', { cls: 'dot', title: '他の人が変えました' }));
+    if (S.draftIds && S.draftIds[r['台帳ID']]) c.classList.add('drafted');
     c.addEventListener('pointerdown', function (e) { press(e, r, c); });
     return c;
   }
@@ -454,7 +494,7 @@
     var t = st.view.from + Math.round((ev.clientY - dg.offY - rect.top) / PX) * 10;
     t = Math.max(st.view.from, Math.min(st.view.to - st.visitMin, t));
     var cand = Object.assign({}, dg.row, { '担当': col.dataset.staff, '曜日': col.dataset.day, '開始': H.fmtHm(t) });
-    var chk = H.placementCheck(S.d.rows, S.places, st, S.areas, S.d.today, cand);
+    var chk = H.placementCheck(S.rows, S.places, st, S.areas, S.d.today, cand);
     var same = dg.row['担当'] === cand['担当'] && dg.row['曜日'] === cand['曜日'] && dg.row['開始'] === cand['開始'];
     dg.target = same ? null : { cand: cand, chk: chk };
     dg.box = el('div', { cls: 'target ' + chk.level, style: 'top:' + ((t - st.view.from) / 10 * PX) + 'px;height:' + (st.visitMin / 10 * PX) + 'px' });
@@ -478,7 +518,10 @@
     cancelDrag();
     if (!target) return;
     if (target.chk.level === 'ng') { status('置けません：' + target.chk.reason, 'ng'); return; }
-    confirmPlace(dg.row, target.cand, target.chk);
+    var row = dg.row, c = target.cand, waiting = H.parseHm(row['開始']) === null;
+    var to = c['曜日'] + ' ' + c['担当'] + ' ' + c['開始'];
+    addDraft({ type: waiting ? 'place' : 'move', id: row['台帳ID'], '担当': c['担当'], '曜日': c['曜日'], '開始': c['開始'], from: '' },
+      row['利用者'] + ' → ' + to + (target.chk.level === 'near' ? '（要相談：' + target.chk.reason + '）' : ''));
   }
 
   // ── 確定の前の確認 ──
@@ -486,40 +529,76 @@
   function closeSheet() { $('ovl').classList.add('hidden'); clear($('sheet')); }
   $('ovl').addEventListener('click', function (e) { if (e.target === this) closeSheet(); });
 
-  function confirmPlace(row, cand, chk) {
-    var waiting = H.parseHm(row['開始']) === null;
-    var from = el('input', { type: 'date', min: S.d.today });
-    var to = cand['曜日'] + ' ' + cand['担当'] + ' ' + cand['開始'];
+  // ── 下書き：1つ戻す・捨てる・まとめて確定 ──
+  $('btnUndo').addEventListener('click', function () {
+    var ch = S.drafts.pop();
+    rebuild(); render();
+    status(ch ? '1つ戻しました' : '下書きはありません');
+  });
+  $('btnDiscard').addEventListener('click', function () {
+    var n = S.drafts.length;
     openSheet([
-      el('h2', { text: waiting ? '新規の方を置きます' : '枠を動かします' }),
-      el('table', { cls: 'kv' }, [
-        el('tr', {}, [el('td', { text: '利用者' }), el('td', { text: row['利用者'] })]),
-        waiting ? null : el('tr', {}, [el('td', { text: '今' }), el('td', { text: row['曜日'] + ' ' + row['担当'] + ' ' + row['開始'] })]),
-        el('tr', {}, [el('td', { text: waiting ? '置き先' : '動かし先' }), el('td', { text: to })])]),
-      chk.level === 'near' ? el('div', { cls: 'warnbox', text: '要相談：' + chk.reason }) : null,
-      el('label', { cls: 'lb', text: waiting ? '初回の日（分からなければ空のまま）' : 'いつから（空なら今週から）' }), from,
-      el('div', { cls: 'muted', style: 'margin-top:6px', text: waiting ? '' : '先の日付を入れると、その前日までは今の枠のまま残り、その日から新しい枠になります。' }),
+      el('h2', { text: '下書き ' + n + '件を捨てますか' }),
+      el('div', { text: '保存していない変更をすべて捨てて、保存されている盤面に戻します。' }),
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
+        el('button', { text: '捨てる', style: 'background:#a32d22', onclick: function () { closeSheet(); S.drafts = []; rebuild(); render(); status('下書きを捨てました'); } })])]);
+  });
+
+  function describe(ch) {
+    var row = S.rows.filter(function (r) { return r['台帳ID'] === (ch.id || ch.tempId); })[0] ||
+              S.base.filter(function (r) { return r['台帳ID'] === ch.id; })[0] || {};
+    var name = ch['利用者'] || row['利用者'] || '';
+    var to = (ch['曜日'] || '') + ' ' + (ch['担当'] || '') + ' ' + (ch['開始'] || '');
+    if (ch.type === 'addWaiting') return '待機に追加：' + name;
+    if (ch.type === 'deleteWaiting') return '待機から削除：' + name;
+    var orig = S.base.filter(function (r) { return r['台帳ID'] === ch.id; })[0];
+    var from = orig && H.parseHm(orig['開始']) !== null ? orig['曜日'] + ' ' + orig['担当'] + ' ' + orig['開始'] : '待機';
+    return name + '：' + from + ' → ' + to;
+  }
+
+  $('btnCommit').addEventListener('click', function () {
+    var list = H.compressChanges(S.drafts);
+    var from = el('input', { type: 'date', min: S.d.today });
+    var hasMove = list.some(function (c) { return c.type === 'move' || c.type === 'place'; });
+    openSheet([
+      el('h2', { text: 'まとめて確定（' + list.length + '件）' }),
+      el('div', {}, list.map(function (c) { return el('div', { cls: 'chg', text: describe(c) }); })),
+      hasMove ? el('label', { cls: 'lb', text: 'いつから（全部に共通。空なら今週から）' }) : null, hasMove ? from : null,
+      hasMove ? el('div', { cls: 'muted', style: 'margin-top:6px', text: '先の日付を入れると、その前日までは今の枠のまま残り、その日から新しい枠になります（新規の方はその日が初回）。' }) : null,
       el('div', { cls: 'btns' }, [
         el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
         el('button', { text: '確定する', onclick: function () {
-          var ch = { type: waiting ? 'place' : 'move', id: row['台帳ID'], '担当': cand['担当'], '曜日': cand['曜日'], '開始': cand['開始'], from: from.value };
-          closeSheet(); save([ch], (waiting ? '置きました：' : '動かしました：') + row['利用者'] + ' → ' + to);
+          var f = from.value;
+          var changes = list.map(function (c) { if (f && (c.type === 'move' || c.type === 'place')) c.from = f; return c; });
+          closeSheet(); commit(changes);
         } })])]);
-  }
+  });
 
-  async function save(changes, done) {
+  async function commit(changes) {
+    var btn = $('btnCommit');
+    btn.disabled = true;
     try {
       msg('保存中…', 'wait');
       var d = await authed('save', { requestId: newRequestId(), version: S.d.version, changes: changes });
-      setBoard(d);
-      msg(done || '保存しました', 'ok');
-      status(done || '保存しました', 'ok');
+      S.d.version = d.version; S.d.rows = d.rows;
+      S.drafts = [];
+      setBoard(S.d);
+      msg('保存しました（' + d.saved + '件）', 'ok');
+      status('保存しました（' + d.saved + '件）。週間表のタブは少し後に作り直されます。', 'ok');
     } catch (e) {
-      if (e.conflict || /他の人が先に/.test(e.message)) {
-        msg(e.message);
-        try { await reload(); } catch (x) {}
-      } else msg(e.message);
-    }
+      msg(e.message + (e.conflict || /他の人が先に/.test(e.message) ? '' : '\n下書きはそのまま残してあります。'));
+      if (e.conflict || /他の人が先に/.test(e.message)) { try { await reload(); } catch (x) {} }
+    } finally { btn.disabled = false; }
+  }
+
+  // 保存していない下書きがあるまま閉じようとしたら止める
+  window.addEventListener('beforeunload', function (e) { if (S.drafts.length) { e.preventDefault(); e.returnValue = ''; } });
+
+  async function save(changes, done) {
+    S.drafts = S.drafts.concat(changes);
+    rebuild(); render();
+    status('下書き：' + done + '（まだ保存していません）', 'near');
   }
 
   // ── 詳細（押しただけのとき）──
@@ -537,7 +616,7 @@
       el('div', { cls: 'btns' }, [
         el('button', { cls: 'sub', text: '閉じる', onclick: closeSheet }),
         waiting ? el('button', { text: '待機から消す', style: 'background:#a32d22', onclick: function () {
-          if (this.dataset.armed) { closeSheet(); save([{ type: 'deleteWaiting', id: r['台帳ID'] }], '待機から消しました：' + r['利用者']); return; }
+          if (this.dataset.armed) { closeSheet(); save([{ type: 'deleteWaiting', id: r['台帳ID'] }], '待機から削除：' + r['利用者']); return; }
           this.dataset.armed = '1'; this.textContent = 'もう一度押すと消します';
         } }) : null])]);
   }
@@ -564,8 +643,8 @@
         el('button', { text: '待機に足す', onclick: function () {
           if (!name.value.trim()) { err.textContent = '利用者を入れてください'; return; }
           closeSheet();
-          save([{ type: 'addWaiting', '利用者': name.value.trim(), '場所': place.value, '地区': area.value, '頻度': freq.value,
-                  '保険区分': ins.value, '代行優先度': pr.value, 'メモ': memo.value.trim() }], '待機に足しました：' + name.value.trim());
+          save([{ type: 'addWaiting', tempId: 'T' + (++S.tmp) + '-' + Date.now().toString(36), '利用者': name.value.trim(), '場所': place.value, '地区': area.value, '頻度': freq.value,
+                  '保険区分': ins.value, '代行優先度': pr.value, 'メモ': memo.value.trim() }], '待機に追加：' + name.value.trim());
         } })])]);
   });
 
