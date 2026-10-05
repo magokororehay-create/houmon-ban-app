@@ -296,6 +296,7 @@
   function setBoard(d) {
     S.d = d;
     S.base = d.rows;
+    if (!S.view || S.view < d.today) S.view = d.today;
     var lost = rebuild();
     if (lost) msg('下書きのうち ' + lost + ' 件は、新しい盤面には当てられなかったので外しました');
     S.settings = H.normalizeSettings(d.settings);
@@ -340,7 +341,8 @@
     return '#b0b0b5';
   }
   function shortArea(area) { return String(area || '').replace(/^(.+?郡)?.+?[市町村](?=.)/, ''); }
-  function shown(r) { return H.parseHm(r['開始']) !== null && (H.isActive(r, S.d.today) || (r['開始日'] && r['開始日'] > S.d.today)); }
+  // 表示する日（S.view）に有効な枠と、その日より後に始まる枠（点線）を出す。
+  function shown(r) { return H.parseHm(r['開始']) !== null && (H.isActive(r, S.view) || (r['開始日'] && r['開始日'] > S.view)); }
 
   function render() {
     var d = S.d, st = S.settings, view = st.view;
@@ -351,8 +353,12 @@
       dbox.appendChild(el('button', { cls: w === S.day ? 'on' : '', text: w === '全' ? '全曜日' : w + '曜日',
         onclick: function () { S.day = w; store(DAY_KEY, w); render(); } }));
     });
-    var grid = H.renderWeekGrid(S.rows, S.places, st, d.today, S.areas);
-    var kai = H.weekNumbers(S.rows, d.today);
+    var vd = el('input', { type: 'date', value: S.view, min: d.today, style: 'width:auto;padding:6px 8px;font-size:14px', title: '表示する日' });
+    vd.addEventListener('change', function () { S.view = vd.value && vd.value >= d.today ? vd.value : d.today; render(); });
+    dbox.appendChild(el('label', { cls: 'muted', style: 'display:flex;align-items:center;gap:4px;white-space:nowrap' },
+      [document.createTextNode(S.view === d.today ? '表示する日' : '表示する日（先の姿）'), vd]));
+    var grid = H.renderWeekGrid(S.rows, S.places, st, S.view, S.areas);
+    var kai = H.weekNumbers(S.rows, S.view);
     var changed = {};
     d.changes.forEach(function (c) { changed[c['台帳ID']] = true; });
     S.draftIds = {};
@@ -408,11 +414,11 @@
     var stt = H.shownStatus(r);
     var label = H.cellLabel(r, S.places, kai[r['台帳ID']] || '');
     var notes = [];
-    if (r['開始日'] && r['開始日'] > S.d.today) notes.push(md(r['開始日']) + 'から');
+    if (r['開始日'] && r['開始日'] > S.view) notes.push(md(r['開始日']) + 'から');
     if (r['終了日']) notes.push(md(r['終了日']) + 'まで');
     if (stt === '入院中') notes.push('入院中');
     var sub = [shortArea(r['地区']) || '地区なし'].concat(notes).join('・');
-    var c = el('div', { cls: 'vc' + (r['開始日'] && r['開始日'] > S.d.today ? ' future' : ''),
+    var c = el('div', { cls: 'vc' + (r['開始日'] && r['開始日'] > S.view ? ' future' : ''),
       style: 'background:' + (H.STATUS_COLORS[stt] || '#fff') + ';border-left-color:' + cityColor(r['地区']) }, [
       el('div', { cls: 'nm', text: label }), el('div', { cls: 'sb', text: sub })]);
     if (changed[r['台帳ID']]) c.appendChild(el('span', { cls: 'dot', title: '他の人が変えました' }));
@@ -494,7 +500,7 @@
     var t = st.view.from + Math.round((ev.clientY - dg.offY - rect.top) / PX) * 10;
     t = Math.max(st.view.from, Math.min(st.view.to - st.visitMin, t));
     var cand = Object.assign({}, dg.row, { '担当': col.dataset.staff, '曜日': col.dataset.day, '開始': H.fmtHm(t) });
-    var chk = H.placementCheck(S.rows, S.places, st, S.areas, S.d.today, cand);
+    var chk = H.placementCheck(S.rows, S.places, st, S.areas, S.view, cand);
     var same = dg.row['担当'] === cand['担当'] && dg.row['曜日'] === cand['曜日'] && dg.row['開始'] === cand['開始'];
     dg.target = same ? null : { cand: cand, chk: chk };
     dg.box = el('div', { cls: 'target ' + chk.level, style: 'top:' + ((t - st.view.from) / 10 * PX) + 'px;height:' + (st.visitMin / 10 * PX) + 'px' });
@@ -552,6 +558,10 @@
     var to = (ch['曜日'] || '') + ' ' + (ch['担当'] || '') + ' ' + (ch['開始'] || '');
     if (ch.type === 'addWaiting') return '待機に追加：' + name;
     if (ch.type === 'deleteWaiting') return '待機から削除：' + name;
+    if (ch.type === 'end') return (ch.scope === 'person' ? '終了（全部の枠）：' : '減回：') + name + '　' + md(ch.last) + 'まで（' + ch.reason + '）';
+    if (ch.type === 'unend') return '終了・減回の取り消し：' + name;
+    if (ch.type === 'status') return '状態：' + name + ' → ' + ch.status + (ch.from ? '（' + md(ch.from) + 'から）' : '');
+    if (ch.type === 'addVisit') return '増回（待機に出す）：' + name;
     var orig = S.base.filter(function (r) { return r['台帳ID'] === ch.id; })[0];
     var from = orig && H.parseHm(orig['開始']) !== null ? orig['曜日'] + ' ' + orig['担当'] + ' ' + orig['開始'] : '待機';
     return name + '：' + from + ' → ' + to;
@@ -559,7 +569,7 @@
 
   $('btnCommit').addEventListener('click', function () {
     var list = H.compressChanges(S.drafts);
-    var from = el('input', { type: 'date', min: S.d.today });
+    var from = el('input', { type: 'date', min: S.d.today, value: S.view > S.d.today ? S.view : '' });
     var hasMove = list.some(function (c) { return c.type === 'move' || c.type === 'place'; });
     openSheet([
       el('h2', { text: 'まとめて確定（' + list.length + '件）' }),
@@ -602,17 +612,91 @@
   }
 
   // ── 詳細（押しただけのとき）──
+  var END_REASONS = ['施設入所', 'ご逝去', '卒業（目標達成）', '他事業所へ', '本人・家族の意向', '長期入院', 'その他'];
+  function selectOf(opts, value) {
+    var s = el('select');
+    opts.forEach(function (o) { var op = el('option', { value: o, text: o || '（選んでください）' }); if (o === value) op.selected = true; s.appendChild(op); });
+    return s;
+  }
+  // 減回（この枠だけ）・終了（この方の全部の枠）：最終日と理由を入れて下書きに。
+  function endForm(r, scope) {
+    var last = el('input', { type: 'date', min: S.d.today });
+    var reason = selectOf([''].concat(END_REASONS), '');
+    var err = el('div', { cls: 'muted', style: 'color:#b00' });
+    openSheet([
+      el('h2', { text: (scope === 'person' ? 'この方を終了する：' : 'この枠を減らす（減回）：') + r['利用者'] }),
+      el('div', { cls: 'muted', text: scope === 'person'
+        ? 'この方の続いている枠すべてを、最終日で終えます。最終日までは水色（終了予定）で残り、その翌日から盤面から消えます。'
+        : r['曜日'] + ' ' + r['担当'] + ' ' + r['開始'] + ' の枠だけを最終日で終えます。その翌日から空きになります。' }),
+      el('label', { cls: 'lb', text: '最終日（この日の訪問までは行く）' }), last,
+      el('label', { cls: 'lb', text: '理由' }), reason, err,
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
+        el('button', { text: '下書きに入れる', onclick: function () {
+          if (!last.value) { err.textContent = '最終日を入れてください'; return; }
+          if (!reason.value) { err.textContent = '理由を選んでください'; return; }
+          closeSheet();
+          save([{ type: 'end', id: r['台帳ID'], scope: scope, last: last.value, reason: reason.value }],
+            (scope === 'person' ? '終了：' : '減回：') + r['利用者'] + ' ' + md(last.value) + 'まで');
+        } })])]);
+  }
+  function statusForm(r) {
+    var cur = r['状態'] || '通常';
+    var st = selectOf(['通常', '新規予定', '調整中'], cur === '入院中' ? '通常' : cur);
+    openSheet([
+      el('h2', { text: '状態を変える：' + r['利用者'] }),
+      el('div', { cls: 'muted', text: 'この枠だけの状態です（入院・退院は「入院」「退院」のボタンで、この方の全部の枠に入ります）。' }),
+      el('label', { cls: 'lb', text: '状態' }), st,
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
+        el('button', { text: '下書きに入れる', onclick: function () {
+          closeSheet(); save([{ type: 'status', id: r['台帳ID'], status: st.value }], '状態：' + r['利用者'] + ' → ' + st.value);
+        } })])]);
+  }
+  function hospitalForm(r) {
+    var day = el('input', { type: 'date', value: S.d.today });
+    openSheet([
+      el('h2', { text: '入院：' + r['利用者'] }),
+      el('div', { cls: 'muted', text: 'この方の全部の枠を赤（入院中）にします。枠は押さえたままで、営業の空き枠には出しません。入院中の枠には別の方を入れられます。' }),
+      el('label', { cls: 'lb', text: '入院日（記録用）' }), day,
+      el('div', { cls: 'btns' }, [
+        el('button', { cls: 'sub', text: 'やめる', onclick: closeSheet }),
+        el('button', { text: '下書きに入れる', onclick: function () {
+          closeSheet(); save([{ type: 'status', id: r['台帳ID'], status: '入院中', from: day.value }], '入院：' + r['利用者']);
+        } })])]);
+  }
+
+  // ── 詳細（押しただけのとき）──
   function openDetail(r) {
     var waiting = H.parseHm(r['開始']) === null;
     var kv = function (k, v) { return v ? el('tr', {}, [el('td', { text: k }), el('td', { text: v })]) : null; };
+    var act = function (text, fn, color) {
+      return el('button', { cls: color ? '' : 'sub', text: text, style: 'flex:1 1 45%;' + (color ? 'background:' + color : ''), onclick: fn });
+    };
+    var inHospital = (r['状態'] || '') === '入院中';
+    var acts = waiting ? [] : [
+      act('減回（この枠を終える）', function () { endForm(r, 'row'); }),
+      act('終了（この方の全部）', function () { endForm(r, 'person'); }, '#a32d22'),
+      inHospital
+        ? act('退院（通常に戻す）', function () { closeSheet(); save([{ type: 'status', id: r['台帳ID'], status: '通常' }], '退院：' + r['利用者']); })
+        : act('入院', function () { hospitalForm(r); }),
+      act('状態を変える', function () { statusForm(r); }),
+      act('増回（待機に出す）', function () {
+        closeSheet();
+        save([{ type: 'addVisit', id: r['台帳ID'], tempId: 'T' + (++S.tmp) + '-' + Date.now().toString(36) }], '増回：' + r['利用者'] + ' を待機に出しました');
+      }),
+      r['終了日'] ? act('終了・減回を取り消す', function () { closeSheet(); save([{ type: 'unend', id: r['台帳ID'] }], '終了・減回の取り消し：' + r['利用者']); }) : null,
+    ];
     openSheet([
       el('h2', { text: r['利用者'] }),
       el('table', { cls: 'kv' }, [
         kv('枠', waiting ? '待機（まだ置いていません）' : r['曜日'] + ' ' + r['担当'] + ' ' + r['開始']),
         kv('場所', r['場所']), kv('地区', r['地区']), kv('頻度', r['頻度']), kv('状態', H.shownStatus(r)),
-        kv('開始日', r['開始日']), kv('終了日', r['終了日']), kv('保険区分', r['保険区分']), kv('代行優先度', r['代行優先度']),
+        kv('開始日', r['開始日']), kv('終了日', r['終了日'] ? r['終了日'] + (r['終了理由'] ? '（' + r['終了理由'] + '）' : '') : ''),
+        kv('保険区分', r['保険区分']), kv('代行優先度', r['代行優先度']),
         kv('メモ', r['メモ']), kv('最後に変えた人', r['更新者'] ? r['更新者'] + '（' + r['更新日時'] + '）' : '')]),
-      waiting ? null : el('div', { cls: 'muted', style: 'margin-top:10px', text: '増回・減回・終了・入院は次の段で盤面から扱えるようにします。今はシートの訪問台帳を直してください。' }),
+      acts.length ? el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:12px' }, acts) : null,
+      acts.length ? el('div', { cls: 'muted', style: 'margin-top:6px', text: 'どれも下書きに入ります。「まとめて確定」で保存されます。' }) : null,
       el('div', { cls: 'btns' }, [
         el('button', { cls: 'sub', text: '閉じる', onclick: closeSheet }),
         waiting ? el('button', { text: '待機から消す', style: 'background:#a32d22', onclick: function () {

@@ -509,7 +509,9 @@ function where_(r) { return str_(r['曜日']) + ' ' + str_(r['担当']) + ' ' + 
 
 // 盤面の変更1件を台帳に当てる（元の rows は変えない）。{rows, history[]}。
 // change.type：move（担当・曜日・開始。from が今日より後なら元の枠を前日で終え、新しい枠 newId を from から始める）／
-//   place（待機の枠を置く。from を開始日に）／addWaiting（新規を待機に足す。状態は新規予定）／deleteWaiting。
+//   place（待機の枠を置く。from を開始日に）／addWaiting（新規を待機に足す。状態は新規予定）／deleteWaiting／
+//   end（scope=row で減回＝この枠だけ、person で終了＝この方の続いている枠すべて。last＝最終日・reason＝理由）／unend（取り消し）／
+//   status（入院中・退院はこの方の枠すべて、他の状態はこの枠だけ）／addVisit（増回：同じ方のカードを待機に出す）。
 function applyChange(rows, change, today, newId, who, now) {
   var out = rows.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { o[k] = r[k]; }); return o; });
   var type = str_(change.type), from = str_(change.from), history = [];
@@ -537,6 +539,58 @@ function applyChange(rows, change, today, newId, who, now) {
     if (!waiting) throw new Error('置いてある枠は消せません（減回・終了で扱います）');
     out.splice(idx, 1);
     log('待機から削除', r, '待機', '', today);
+    return { rows: out, history: history };
+  }
+  var samePerson = function (x) {
+    var id = str_(r['利用者ID']);
+    return id ? str_(x['利用者ID']) === id : str_(x['利用者']) === str_(r['利用者']);
+  };
+  if (type === 'end') {
+    var last = str_(change.last), reason = str_(change.reason);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(last) || last < today) throw new Error('最終日を今日以降の日付で入れてください');
+    if (!reason) throw new Error('理由を選んでください');
+    var targets = change.scope === 'person'
+      ? out.filter(function (x) { return samePerson(x) && !(str_(x['終了日']) && str_(x['終了日']) <= last); })
+      : [r];
+    targets.forEach(function (x) {
+      var before = where_(x) + (str_(x['終了日']) ? '（' + x['終了日'] + 'まで）' : '');
+      x['終了日'] = last; x['終了理由'] = reason;
+      touch(x);
+      log(change.scope === 'person' ? '終了' : '減回', x, before, +last.slice(5, 7) + '/' + (+last.slice(8, 10)) + 'まで（' + reason + '）', last);
+    });
+    return { rows: out, history: history };
+  }
+  if (type === 'unend') {
+    var was = str_(r['終了日']);
+    r['終了日'] = ''; r['終了理由'] = '';
+    touch(r);
+    log('終了の取り消し', r, was ? was + 'まで' : '', where_(r), today);
+    return { rows: out, history: history };
+  }
+  if (type === 'status') {
+    var st = str_(change.status), cur = str_(r['状態']) || '通常';
+    if (STATUSES.indexOf(st) < 0 || st === '終了予定') throw new Error('状態が読めません: ' + st);
+    var personWide = st === '入院中' || cur === '入院中';
+    var kind = st === '入院中' ? '入院' : (cur === '入院中' && st === '通常' ? '退院' : '状態の変更');
+    var list = personWide
+      ? out.filter(function (x) { return samePerson(x) && !(str_(x['終了日']) && str_(x['終了日']) < today) && (st === '入院中' || (str_(x['状態']) || '通常') === '入院中'); })
+      : [r];
+    list.forEach(function (x) {
+      var b4 = str_(x['状態']) || '通常';
+      x['状態'] = st;
+      touch(x);
+      log(kind, x, b4, st, from || today);
+    });
+    return { rows: out, history: history };
+  }
+  if (type === 'addVisit') {
+    var nv = {};
+    LEDGER_COLUMNS.forEach(function (k) { nv[k] = ''; });
+    ['利用者', '利用者ID', '場所', '地区', '保険区分', '代行優先度'].forEach(function (k) { nv[k] = str_(r[k]); });
+    nv['台帳ID'] = newId; nv['頻度'] = '毎週'; nv['状態'] = '新規予定'; nv['メモ'] = '増回';
+    touch(nv);
+    out.push(nv);
+    log('増回（待機に追加）', nv, '', '待機', today);
     return { rows: out, history: history };
   }
   if (type !== 'move' && type !== 'place') throw new Error('不明な変更です: ' + type);
