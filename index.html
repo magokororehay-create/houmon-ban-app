@@ -117,6 +117,7 @@
     <span class="sp"></span>
     <span id="me" class="muted"></span>
     <button id="btnChanges" class="sub">前回からの変更<b id="nChanges" class="zero">0</b></button>
+    <button id="btnBatches" class="sub">最近の確定</button>
     <button id="btnReload" class="sub">読み込み直す</button>
     <button id="btnReset" class="sub hidden">試験用に写し直す</button>
     <a href="#" id="logout">ログアウト</a>
@@ -326,7 +327,12 @@
     var rows = S.base, ex = S.d.exceptions || [], kept = [];
     S.drafts.forEach(function (ch) {
       try {
-        if (ch.type === 'fifth') ex = H.applyExceptionChange(ex, rows, ch, S.d.me, '（下書き）').exceptions;
+        if (ch.type === 'revert') {
+          var bt = (S.d.batches || []).filter(function (b) { return b.id === ch.batch; })[0];
+          if (!bt || !bt.info) throw new Error('取り消す確定が見つかりません');
+          var rv = H.revertBatch(rows, ex, bt.info, bt.stamp, S.d.me, '（下書き）');
+          rows = rv.rows; ex = rv.exceptions;
+        } else if (ch.type === 'fifth') ex = H.applyExceptionChange(ex, rows, ch, S.d.me, '（下書き）').exceptions;
         else rows = H.applyChange(rows, ch, S.d.today, ch.tempId || 'T-none', S.d.me, '（下書き）').rows;
         kept.push(ch);
       } catch (e) { /* 他の人の保存で、もう当てられない */ }
@@ -593,6 +599,10 @@
     if (ch.type === 'unend') return '終了・減回の取り消し：' + name;
     if (ch.type === 'status') return '状態：' + name + ' → ' + ch.status + (ch.from ? '（' + md(ch.from) + 'から）' : '');
     if (ch.type === 'addVisit') return '増回（待機に出す）：' + name;
+    if (ch.type === 'revert') {
+      var bt = (S.d.batches || []).filter(function (b) { return b.id === ch.batch; })[0];
+      return '取り消し：' + (bt ? batchTitle(bt) + 'の確定' : ch.batch);
+    }
     if (ch.type === 'fifth') {
       var goer = S.rows.filter(function (r) { return r['台帳ID'] === ch.go; })[0];
       var slot = S.rows.filter(function (r) { return r['台帳ID'] === (ch.ids || [])[0]; })[0] || {};
@@ -605,6 +615,7 @@
 
   $('btnCommit').addEventListener('click', function () {
     var list = H.compressChanges(S.drafts);
+    if (!list.length) { S.drafts = []; rebuild(); render(); status('保存する下書きはありません'); return; }
     var from = el('input', { type: 'date', min: S.d.today, value: S.view > S.d.today ? S.view : '' });
     var hasMove = list.some(function (c) { return c.type === 'move' || c.type === 'place'; });
     openSheet([
@@ -627,7 +638,7 @@
     try {
       msg('保存中…', 'wait');
       var d = await authed('save', { requestId: newRequestId(), version: S.d.version, changes: changes });
-      S.d.version = d.version; S.d.rows = d.rows; S.d.exceptions = d.exceptions || S.d.exceptions;
+      S.d.version = d.version; S.d.rows = d.rows; S.d.exceptions = d.exceptions || S.d.exceptions; S.d.batches = d.batches || S.d.batches;
       S.drafts = [];
       setBoard(S.d);
       msg('保存しました（' + d.saved + '件）', 'ok');
@@ -637,6 +648,32 @@
       if (e.conflict || /他の人が先に/.test(e.message)) { try { await reload(); } catch (x) {} }
     } finally { btn.disabled = false; }
   }
+
+  // ── 最近の確定（取り消し）──
+  function batchTitle(b) { return md(b.stamp.slice(0, 10)) + ' ' + b.stamp.slice(11, 16) + ' ' + b.who + '（' + b.items.length + '件）'; }
+  $('btnBatches').addEventListener('click', function () {
+    var list = S.d.batches || [];
+    openSheet([
+      el('h2', { text: '最近の確定（7日）' }),
+      el('div', { cls: 'muted', text: '「取り消す」を押すと、その確定の前に戻す変更が下書きに入ります。「まとめて確定」で保存されます。確定の後に同じ枠がまた変わっていると取り消せません。' }),
+      list.length ? null : el('div', { cls: 'muted', style: 'margin-top:8px', text: '最近の確定はありません。' }),
+      el('div', {}, list.map(function (b) {
+        var why = '';
+        if (!b.info) why = '取り消し用の情報が無い確定です';
+        else if (S.drafts.some(function (c) { return c.type === 'revert' && c.batch === b.id; })) why = 'もう下書きに入っています';
+        else { try { H.revertBatch(S.rows, S.ex, b.info, b.stamp, S.d.me, 'x'); } catch (e) { why = e.message; } }
+        var lines = b.items.slice(0, 6).map(function (it) {
+          return el('small', { style: 'display:block', text: it.kind + '　' + it.name + '　' + [it.before, it.after].filter(Boolean).join(' → ') });
+        });
+        if (b.items.length > 6) lines.push(el('small', { style: 'display:block', text: 'ほか ' + (b.items.length - 6) + '件' }));
+        return el('div', { cls: 'chg' }, [el('div', { text: batchTitle(b) })].concat(lines).concat([
+          why ? el('div', { cls: 'muted', style: 'margin-top:4px', text: '取り消せません：' + why })
+              : el('button', { cls: 'sub', style: 'margin-top:6px;padding:6px 10px;font-size:13px', text: 'この確定を取り消す（下書きに入れる）', onclick: function () {
+                  closeSheet(); addDraft({ type: 'revert', batch: b.id }, '取り消し：' + batchTitle(b) + 'の確定');
+                } })]));
+      })),
+      el('div', { cls: 'btns' }, [el('button', { cls: 'sub', text: '閉じる', onclick: closeSheet })])]);
+  });
 
   // 保存していない下書きがあるまま閉じようとしたら止める
   window.addEventListener('beforeunload', function (e) { if (S.drafts.length) { e.preventDefault(); e.returnValue = ''; } });

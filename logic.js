@@ -741,5 +741,57 @@ function applyExceptionChange(exceptions, rows, change, who, now) {
     '前': '', '後': where_(slot) + '：' + (goer ? str_(goer['利用者']) : 'なし（休み）'), '効く日': date }] };
 }
 
-  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange, compressChanges: compressChanges, pendingFifthWeek: pendingFifthWeek, applyExceptionChange: applyExceptionChange };
+// ---- 確定の取り消し ----
+// 確定（保存1回）の前後の台帳と月の例外の差を、取り消し用の情報にする：
+// {rows: [{id, before: 確定前の行 | null（この確定で足した行）}], ex: {keys: ['日付|台帳ID'], before: [確定前の例外の行]}}。
+function diffForUndo(beforeRows, afterRows, beforeEx, afterEx) {
+  var b = {}, a = {}, ids = [];
+  beforeRows.forEach(function (r) { b[r['台帳ID']] = r; });
+  afterRows.forEach(function (r) { a[r['台帳ID']] = r; });
+  beforeRows.concat(afterRows).forEach(function (r) { if (ids.indexOf(r['台帳ID']) < 0) ids.push(r['台帳ID']); });
+  var rows = ids.filter(function (id) { return JSON.stringify(b[id] || null) !== JSON.stringify(a[id] || null); })
+    .map(function (id) { return { id: id, before: b[id] || null }; });
+  var key = function (e) { return str_(e['日付']) + '|' + str_(e['台帳ID']); };
+  var bx = {}, ax = {}, keys = [];
+  (beforeEx || []).forEach(function (e) { bx[key(e)] = e; });
+  (afterEx || []).forEach(function (e) { ax[key(e)] = e; });
+  Object.keys(bx).concat(Object.keys(ax)).forEach(function (k) {
+    var x = bx[k] ? str_(bx[k]['内容']) : null, y = ax[k] ? str_(ax[k]['内容']) : null;
+    if (x !== y && keys.indexOf(k) < 0) keys.push(k);
+  });
+  return { rows: rows, ex: { keys: keys, before: keys.filter(function (k) { return bx[k]; }).map(function (k) { return bx[k]; }) } };
+}
+
+// 取り消し：info（diffForUndo）の確定前に戻す。stamp はその確定の日時。
+// その確定の後に同じ枠を誰かがまた変えていたら（行の更新日時が stamp と違えば）取り消さない。{rows, exceptions, history}。
+function revertBatch(rows, exceptions, info, stamp, who, now) {
+  var out = rows.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { o[k] = r[k]; }); return o; });
+  var history = [];
+  (info.rows || []).forEach(function (d) {
+    var i = -1;
+    out.forEach(function (r, j) { if (r['台帳ID'] === d.id) i = j; });
+    var cur = i >= 0 ? out[i] : null;
+    if (cur && str_(cur['更新日時']) !== str_(stamp)) {
+      throw new Error((cur['利用者'] || d.id) + ' はこの確定の後から別の変更があるので、取り消せません');
+    }
+    var name = str_((cur || d.before || {})['利用者']);
+    if (!d.before) {
+      if (i >= 0) out.splice(i, 1);
+      history.push({ '日時': now, '誰が': who, '種類': '取り消し', '台帳ID': d.id, '利用者': name, '前': cur ? where_(cur) : '', '後': '（足した枠を消す）', '効く日': '' });
+      return;
+    }
+    var back = {};
+    Object.keys(d.before).forEach(function (k) { back[k] = d.before[k]; });
+    back['更新日時'] = now; back['更新者'] = who;
+    if (i >= 0) out[i] = back; else out.push(back);
+    history.push({ '日時': now, '誰が': who, '種類': '取り消し', '台帳ID': d.id, '利用者': name,
+                   '前': cur ? where_(cur) : '（消した枠）', '後': startOf_(back) === null ? '待機' : where_(back), '効く日': '' });
+  });
+  var keys = (info.ex && info.ex.keys) || [];
+  var ex = (exceptions || []).filter(function (e) { return keys.indexOf(str_(e['日付']) + '|' + str_(e['台帳ID'])) < 0; })
+    .concat((info.ex && info.ex.before) || []);
+  return { rows: out, exceptions: ex, history: history };
+}
+
+  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange, compressChanges: compressChanges, pendingFifthWeek: pendingFifthWeek, applyExceptionChange: applyExceptionChange, diffForUndo: diffForUndo, revertBatch: revertBatch };
 })();
