@@ -87,6 +87,11 @@
   .warnbox{background:var(--warn);color:#7a5c00;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:10px;}
   .chg{padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;}
   .chg small{color:var(--mute);}
+  .fw{padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  .fw .opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .fw .opts button{padding:6px 10px;font-size:13px;background:#e6e8eb;color:var(--ink);}
+  .fw .opts button.on{background:var(--pri);color:#fff;}
+  .fw .und{color:#b00;font-weight:700;}
 </style>
 </head>
 <body>
@@ -132,6 +137,11 @@
         <button id="btnAdd" class="full" style="margin-top:6px">＋ 新規を待機に足す</button>
         <div class="muted" style="margin-top:8px">カードを押したまま盤面へ動かすと置けます。スマホは長押ししてから動かします。</div>
       </div>
+      <div class="card" id="fifthCard">
+        <h3>第5週の割り当て</h3>
+        <div class="muted" style="margin-bottom:6px">第1・3週／第2・4週で分けている枠の第5週です。ケアマネの提供票で決まったら選んでください（下書きに入ります）。</div>
+        <div id="fifth"></div>
+      </div>
       <div class="card legend" id="legend"></div>
     </aside>
   </div>
@@ -151,7 +161,7 @@
   var PX = 10;   // 10分あたりの高さ（px）
   var CITY_COLORS = [['甲賀市', '#0f7c80'], ['湖南市', '#7b5ea7'], ['日野町', '#d9822b'], ['東近江市', '#2b6cb0']];
   // base：サーバの台帳。drafts：まだ保存していない変更（動かした順）。rows：base に drafts を当てた、画面に出す形。
-  var S = { ticket: '', d: null, day: '', drag: null, seq: 0, base: [], drafts: [], rows: [], tmp: 0 };
+  var S = { ticket: '', d: null, day: '', drag: null, seq: 0, base: [], drafts: [], rows: [], tmp: 0, ex: [] };
 
   function $(id) { return document.getElementById(id); }
   // 利用者名などシート由来の文字は必ず textContent で入れる（innerHTML に混ぜない）
@@ -313,15 +323,16 @@
   }
   // base に下書きを順に当て直す（読み込み直した後も下書きを残すため）。当てられなかった下書きは外し、その数を返す。
   function rebuild() {
-    var rows = S.base, kept = [];
+    var rows = S.base, ex = S.d.exceptions || [], kept = [];
     S.drafts.forEach(function (ch) {
       try {
-        rows = H.applyChange(rows, ch, S.d.today, ch.tempId || 'T-none', S.d.me, '（下書き）').rows;
+        if (ch.type === 'fifth') ex = H.applyExceptionChange(ex, rows, ch, S.d.me, '（下書き）').exceptions;
+        else rows = H.applyChange(rows, ch, S.d.today, ch.tempId || 'T-none', S.d.me, '（下書き）').rows;
         kept.push(ch);
       } catch (e) { /* 他の人の保存で、もう当てられない */ }
     });
     var lost = S.drafts.length - kept.length;
-    S.drafts = kept; S.rows = rows;
+    S.drafts = kept; S.rows = rows; S.ex = ex;
     return lost;
   }
   function addDraft(ch, done) {
@@ -407,6 +418,7 @@
     var waits = H.waitingRows(S.rows, d.today);
     if (!waits.length) wbox.appendChild(el('div', { cls: 'muted', text: '待機の方はいません' }));
     waits.forEach(function (r) { wbox.appendChild(card(r, kai, changed)); });
+    renderFifth();
     renderLegend();
   }
 
@@ -425,6 +437,25 @@
     if (S.draftIds && S.draftIds[r['台帳ID']]) c.classList.add('drafted');
     c.addEventListener('pointerdown', function (e) { press(e, r, c); });
     return c;
+  }
+
+  // 第5週の割り当て（これから2か月）。候補の名前／なし を押すと下書きに入る。
+  function renderFifth() {
+    var box = $('fifth'); clear(box);
+    var list = H.pendingFifthWeek(S.rows, S.ex, S.d.today, 62);
+    if (!list.length) { box.appendChild(el('div', { cls: 'muted', text: 'これから2か月に、割り当てが要る第5週はありません' })); return; }
+    list.forEach(function (it) {
+      var ids = it.candidates.map(function (r) { return r['台帳ID']; });
+      var pick = function (go, label) {
+        return el('button', { cls: (it.chosen === (go || 'なし')) ? 'on' : '', text: label, onclick: function () {
+          addDraft({ type: 'fifth', date: it.date, ids: ids, go: go }, '第5週：' + md(it.date) + ' ' + it['担当'] + ' ' + it['開始'] + ' → ' + label);
+        } });
+      };
+      box.appendChild(el('div', { cls: 'fw' }, [
+        el('div', {}, [el('b', { text: md(it.date) + '（' + it['曜日'] + '）' + it['担当'] + ' ' + it['開始'] }),
+          it.chosen ? null : el('span', { cls: 'und', text: '　未定' })]),
+        el('div', { cls: 'opts' }, it.candidates.map(function (r) { return pick(r['台帳ID'], r['利用者']); }).concat([pick('', 'なし（休み）')]))]));
+    });
   }
 
   function renderLegend() {
@@ -562,6 +593,11 @@
     if (ch.type === 'unend') return '終了・減回の取り消し：' + name;
     if (ch.type === 'status') return '状態：' + name + ' → ' + ch.status + (ch.from ? '（' + md(ch.from) + 'から）' : '');
     if (ch.type === 'addVisit') return '増回（待機に出す）：' + name;
+    if (ch.type === 'fifth') {
+      var goer = S.rows.filter(function (r) { return r['台帳ID'] === ch.go; })[0];
+      var slot = S.rows.filter(function (r) { return r['台帳ID'] === (ch.ids || [])[0]; })[0] || {};
+      return '第5週：' + md(ch.date) + ' ' + (slot['担当'] || '') + ' ' + (slot['開始'] || '') + ' → ' + (goer ? goer['利用者'] : 'なし（休み）');
+    }
     var orig = S.base.filter(function (r) { return r['台帳ID'] === ch.id; })[0];
     var from = orig && H.parseHm(orig['開始']) !== null ? orig['曜日'] + ' ' + orig['担当'] + ' ' + orig['開始'] : '待機';
     return name + '：' + from + ' → ' + to;
@@ -591,7 +627,7 @@
     try {
       msg('保存中…', 'wait');
       var d = await authed('save', { requestId: newRequestId(), version: S.d.version, changes: changes });
-      S.d.version = d.version; S.d.rows = d.rows;
+      S.d.version = d.version; S.d.rows = d.rows; S.d.exceptions = d.exceptions || S.d.exceptions;
       S.drafts = [];
       setBoard(S.d);
       msg('保存しました（' + d.saved + '件）', 'ok');

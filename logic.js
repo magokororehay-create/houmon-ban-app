@@ -149,7 +149,10 @@ function weekIndex_(ymd) { return Math.floor((dayNumber_(ymd) - 4) / 7); }
 var MONTH_WEEKS_ = { '第1・3週': [1, 3], '第2・4週': [2, 4] };
 
 // その日付に、この枠の人が行くか。true / false / '未定'（第5週・隔週の基準日なし）。
-function goesOn(row, ymd) {
+// exceptions（月の例外タブの行）にその日・その枠の「行く／休み」があればそれに従う。
+function goesOn(row, ymd, exceptions) {
+  var ex = (exceptions || []).filter(function (e) { return str_(e['日付']) === ymd && str_(e['台帳ID']) === str_(row['台帳ID']); })[0];
+  if (ex) return str_(ex['内容']) === '行く';
   var f = str_(row['頻度']) || '毎週';
   if (f === '毎週') return true;
   if (MONTH_WEEKS_[f]) {
@@ -659,6 +662,12 @@ function compressChanges(changes) {
         return;
       }
     }
+    if (c.type === 'fifth') {
+      var key = c.date + '|' + (c.ids || []).slice().sort().join(',');
+      out = out.filter(function (o) { return !(o.type === 'fifth' && o.date + '|' + (o.ids || []).slice().sort().join(',') === key); });
+      out.push(c);
+      return;
+    }
     if (c.type === 'move' && !c.from) {
       for (var i = out.length - 1; i >= 0; i--) {
         var o = out[i];
@@ -673,5 +682,64 @@ function compressChanges(changes) {
   return out;
 }
 
-  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange, compressChanges: compressChanges };
+// ---- 段4b：月の例外（第5週の割り当て） ----
+// 月の例外タブの行：{日付, 台帳ID, 内容（行く／休み）, 更新日時, 更新者}。第1・3週／第2・4週の枠の第5週は、ケアマネの提供票で
+// 「誰が行く／休み」が決まるので、日ごとに入れてもらう（入っていなければ goesOn は '未定'）。
+
+var EXCEPTION_COLUMNS = ['日付', '台帳ID', '内容', '更新日時', '更新者'];
+
+// 'YYYY-MM-DD' の曜日（月〜日）。
+function weekdayOf(ymd) { return WEEKDAYS[((dayNumber_(ymd) + 3) % 7 + 7) % 7]; }
+
+// from から days 日のうち、第5週（その月の29日以降）の日付。
+function fifthWeekDates(from, days) {
+  var out = [];
+  for (var i = 0; i < days; i++) {
+    var d = addDays_(from, i);
+    if (weekOfMonth(d) === 5) out.push(d);
+  }
+  return out;
+}
+
+// これから days 日の第5週の割り当て：第1・3週／第2・4週の枠ごとに
+// [{date, 曜日, 担当, 開始, candidates: [台帳の行], chosen: 台帳ID | 'なし' | ''（未定）}]（日付・開始の順）。
+function pendingFifthWeek(rows, exceptions, today, days) {
+  var out = [];
+  fifthWeekDates(today, days).forEach(function (d) {
+    var wd = weekdayOf(d), slots = {};
+    rows.forEach(function (r) {
+      if (str_(r['曜日']) !== wd || startOf_(r) === null || !MONTH_WEEKS_[str_(r['頻度'])] || !isActive(r, d)) return;
+      var k = str_(r['担当']) + '|' + str_(r['開始']);
+      (slots[k] = slots[k] || []).push(r);
+    });
+    Object.keys(slots).forEach(function (k) {
+      var c = slots[k], go = '', rest = 0;
+      c.forEach(function (r) {
+        var g = goesOn(r, d, exceptions);
+        if (g === true) go = r['台帳ID'];
+        else if (g === false) rest++;
+      });
+      out.push({ date: d, '曜日': wd, '担当': str_(c[0]['担当']), '開始': str_(c[0]['開始']), candidates: c,
+                 chosen: go || (rest === c.length ? 'なし' : '') });
+    });
+  });
+  return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : startOf_(a) - startOf_(b); });
+}
+
+// 第5週の割り当て（change: {type: 'fifth', date, ids: [その枠の候補の台帳ID], go: 行く人の台帳ID（空ならなし）}）を当てる。
+// その日・その候補の行を置き換える。{exceptions, history}（元の配列は変えない）。
+function applyExceptionChange(exceptions, rows, change, who, now) {
+  var ids = change.ids || [], date = str_(change.date), go = str_(change.go);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !ids.length) throw new Error('第5週の割り当てが読めません');
+  if (go && ids.indexOf(go) < 0) throw new Error('行く人が候補にありません');
+  var out = (exceptions || []).filter(function (e) { return !(str_(e['日付']) === date && ids.indexOf(str_(e['台帳ID'])) >= 0); })
+    .map(function (e) { var o = {}; Object.keys(e).forEach(function (k) { o[k] = e[k]; }); return o; });
+  ids.forEach(function (id) { out.push({ '日付': date, '台帳ID': id, '内容': id === go ? '行く' : '休み', '更新日時': now, '更新者': who }); });
+  var byId = function (id) { return rows.filter(function (r) { return r['台帳ID'] === id; })[0] || {}; };
+  var slot = byId(ids[0]), goer = go ? byId(go) : null;
+  return { exceptions: out, history: [{ '日時': now, '誰が': who, '種類': '第5週の割り当て', '台帳ID': go, '利用者': goer ? str_(goer['利用者']) : '',
+    '前': '', '後': where_(slot) + '：' + (goer ? str_(goer['利用者']) : 'なし（休み）'), '効く日': date }] };
+}
+
+  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange, compressChanges: compressChanges, pendingFifthWeek: pendingFifthWeek, applyExceptionChange: applyExceptionChange };
 })();
