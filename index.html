@@ -223,6 +223,8 @@
         if (done) return;
         done = true; clearTimeout(hedgeTimer);
         ctls.forEach(function (c) { try { c.abort(); } catch (e) {} });
+        // 重ねて送ったときの「通信に時間がかかっています」は、届いたら消す（呼び出し側が消さない画面でも残さない）
+        if (ok && sent > 1 && $('msg').textContent.indexOf('通信に時間がかかっています') === 0) msg('');
         if (ok) resolve(val); else reject(val);
       }
       function settled() {
