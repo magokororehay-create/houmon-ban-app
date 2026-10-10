@@ -529,6 +529,7 @@
       c.suppressClickUntil = Date.now() + 1000;
       if (!was || (p.touch && !p.moved)) {
         if (was) cancelDrag();
+        $('ovl').suppressClickUntil = Date.now() + 600;
         openDetail(r); return;
       }
       endDrag(ev);
@@ -595,6 +596,10 @@
   // ── 確定の前の確認 ──
   function openSheet(kids) { $('ovl').openedAt = Date.now(); var s = $('sheet'); clear(s); kids.forEach(function (k) { if (k) s.appendChild(k); }); $('ovl').classList.remove('hidden'); }
   function closeSheet() { $('ovl').classList.add('hidden'); clear($('sheet')); }
+  // 指を離した際のAndroidの合成クリックを、詳細内のボタンへ届く前に止める。
+  $('ovl').addEventListener('click', function (e) {
+    if (Date.now() < (this.suppressClickUntil || 0)) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
   $('ovl').addEventListener('click', function (e) { if (e.target === this && Date.now() - (this.openedAt || 0) > 400) closeSheet(); });
 
   // ── 下書き：1つ戻す・捨てる・まとめて確定 ──
