@@ -550,6 +550,20 @@ function applyChange(rows, change, today, newId, who, now) {
     var id = str_(r['利用者ID']);
     return id ? str_(x['利用者ID']) === id : str_(x['利用者']) === str_(r['利用者']);
   };
+  if (type === 'clientInfo') {
+    var name = str_(change.name);
+    if (!name) throw new Error('利用者名を入れてください');
+    if (name.length > 100) throw new Error('利用者名は100文字以内で入れてください');
+    // IDなしの仮名は別の人と重複し得るので、選んだ行だけ変更する。
+    var targets = str_(r['利用者ID']) ? out.filter(function (x) {
+      return samePerson(x) && !(str_(x['終了日']) && str_(x['終了日']) < today);
+    }) : [r];
+    targets.forEach(function (x) {
+      var before = str_(x['利用者']); x['利用者'] = name; touch(x);
+      log('利用者情報の変更', x, before, name, today);
+    });
+    return {rows:out, history:history};
+  }
   if (type === 'location') {
     out.filter(function (x) { return samePerson(x) && !(str_(x['終了日']) && str_(x['終了日']) < today); }).forEach(function (x) {
       var before = str_(x['場所']) + ' / ' + str_(x['地区']);
