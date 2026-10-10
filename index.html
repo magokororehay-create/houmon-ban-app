@@ -451,6 +451,10 @@
     if (changed[r['台帳ID']]) c.appendChild(el('span', { cls: 'dot', title: '他の人が変えました' }));
     if (S.draftIds && S.draftIds[r['台帳ID']]) c.classList.add('drafted');
     c.addEventListener('pointerdown', function (e) { press(e, r, c); });
+    c.addEventListener('click', function (e) {
+      if (Date.now() < (c.suppressClickUntil || 0)) { e.preventDefault(); return; }
+      openDetail(r);
+    });
     return c;
   }
 
@@ -493,6 +497,7 @@
     var rect = c.getBoundingClientRect();
     var begin = function (ev) {
       p.started = true;
+      c.suppressClickUntil = Date.now() + 1000;
       S.drag = { row: r, card: c, offX: p.x - rect.left, offY: p.y - rect.top, target: null };
       var gh = c.cloneNode(true); gh.classList.add('ghost');
       gh.style.width = rect.width + 'px'; gh.style.height = rect.height + 'px'; gh.style.left = rect.left + 'px'; gh.style.top = rect.top + 'px';
@@ -504,7 +509,7 @@
     var onMove = function (ev) {
       if (!p.started) {
         var dist = Math.abs(ev.clientX - p.x) + Math.abs(ev.clientY - p.y);
-        if (p.touch) { if (dist > 10) cleanup(); return; }
+        if (p.touch) { if (dist > 10) { c.suppressClickUntil = Date.now() + 1000; cleanup(); } return; }
         if (dist > 5) begin(ev);
         return;
       }
@@ -514,7 +519,8 @@
     var onUp = function (ev) {
       var was = p.started;
       cleanup();
-      if (!was) { openDetail(r); return; }
+      if (!was) return;
+      c.suppressClickUntil = Date.now() + 1000;
       endDrag(ev);
     };
     var cleanup = function () {
@@ -523,7 +529,7 @@
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
     };
-    var onCancel = function () { cleanup(); cancelDrag(); };
+    var onCancel = function () { c.suppressClickUntil = Date.now() + 1000; cleanup(); cancelDrag(); };
     window.addEventListener('pointermove', onMove, { passive: false });
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
