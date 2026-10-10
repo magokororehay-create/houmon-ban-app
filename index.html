@@ -33,6 +33,7 @@
   .draftbar b{flex:1;min-width:12em;font-size:15px;}
   .draftbar button{padding:8px 12px;font-size:14px;}
   .vc.drafted{outline:2px dashed #2b6cb0;outline-offset:1px;}
+  .weekly-counts{font-size:13px;line-height:1.5;padding:6px 12px 0;white-space:nowrap;overflow-x:auto;color:var(--ink);}
   .days{display:flex;gap:6px;padding:10px 12px 0;}
   .days button{flex:1;max-width:120px;background:#e6e8eb;color:var(--ink);padding:9px 4px;}
   .days button.on{background:var(--pri);color:#fff;}
@@ -128,6 +129,7 @@
     <button id="btnDiscard" class="sub">下書きを捨てる</button>
     <button id="btnCommit">まとめて確定</button>
   </div>
+  <div class="weekly-counts" id="weeklyCounts" title="表示する日を含む月曜〜金曜：枠数（入院中を除いた件数）。下書きも反映します。"></div>
   <div class="days" id="days"></div>
   <div class="layout">
     <div class="boardwrap"><div class="board" id="board"></div></div>
@@ -366,6 +368,9 @@
   function render() {
     var d = S.d, st = S.settings, view = st.view;
     var days = S.day === '全' ? st.weekdays : [S.day];
+    var wc = H.weeklyVisitCounts(S.rows, st.staff, S.view, S.ex);
+    var countText = function(c) { return c.slots + '件（' + c.visits + '件）'; };
+    $('weeklyCounts').textContent = '週間：' + st.staff.map(function(n) { return n + '：' + countText(wc.staff[n]); }).join('　') + '　合計：' + countText(wc.total) + (wc.total.pending ? '　未定：' + wc.total.pending + '枠' : '');
     // 曜日のタブ
     var dbox = $('days'); clear(dbox);
     st.weekdays.concat(['全']).forEach(function (w) {

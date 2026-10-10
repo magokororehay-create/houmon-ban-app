@@ -817,5 +817,24 @@ function revertBatch(rows, exceptions, info, stamp, who, now) {
   return { rows: out, exceptions: ex, history: history };
 }
 
-  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange, compressChanges: compressChanges, pendingFifthWeek: pendingFifthWeek, applyExceptionChange: applyExceptionChange, diffForUndo: diffForUndo, revertBatch: revertBatch };
+// 表示日の週（月曜起点）の配置済み件数。未定は件数へ足さず別に知らせる。
+function weeklyVisitCounts(rows, staff, asOf, exceptions) {
+  var day = dayNumber_(asOf), monday = day - ((day + 3) % 7);
+  var counts = {}, total = {slots:0, visits:0, pending:0};
+  staff.forEach(function(n) { counts[n] = {slots:0, visits:0, pending:0}; });
+  (rows || []).forEach(function(r) {
+    var c = counts[str_(r['担当'])], wd = ['月','火','水','木','金'].indexOf(str_(r['曜日']));
+    if (!c || wd < 0 || startOf_(r) === null) return;
+    var date = new Date((monday + wd) * 86400000).toISOString().slice(0,10);
+    if (!isActive(r, date)) return;
+    var goes = goesOn(r, date, exceptions);
+    if (goes === '未定') { c.pending++; total.pending++; return; }
+    if (!goes) return;
+    c.slots++; total.slots++;
+    if (shownStatus(r) !== '入院中') { c.visits++; total.visits++; }
+  });
+  return {staff:counts, total:total};
+}
+
+  return { LEDGER_COLUMNS: LEDGER_COLUMNS, STATUS_COLORS: STATUS_COLORS, FREQS: FREQS, STATUSES: STATUSES, WEEKDAYS: WEEKDAYS, parseHm: parseHm, fmtHm: fmtHm, normalizeSettings: normalizeSettings, normalizePlaces: normalizePlaces, normalizeAreas: normalizeAreas, isActive: isActive, goesOn: goesOn, weeksOverlap: weeksOverlap, needGap: needGap, travelMinutes: travelMinutes, shownStatus: shownStatus, cellLabel: cellLabel, weeklyVisitCounts: weeklyVisitCounts, weekNumbers: weekNumbers, renderWeekGrid: renderWeekGrid, placementCheck: placementCheck, waitingRows: waitingRows, applyChange: applyChange, compressChanges: compressChanges, pendingFifthWeek: pendingFifthWeek, applyExceptionChange: applyExceptionChange, diffForUndo: diffForUndo, revertBatch: revertBatch };
 })();
