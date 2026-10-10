@@ -597,7 +597,10 @@
     var name = ch['利用者'] || row['利用者'] || '';
     var to = (ch['曜日'] || '') + ' ' + (ch['担当'] || '') + ' ' + (ch['開始'] || '');
     if (ch.type === 'addWaiting') return '待機に追加：' + name;
-    if (ch.type === 'clientInfo') return '利用者名：' + name + ' → ' + ch.name;
+    if (ch.type === 'clientInfo') {
+      var original = S.base.filter(function (r) { return r['台帳ID'] === ch.id; })[0];
+      return '利用者名：' + (original ? original['利用者'] : name) + ' → ' + ch.name;
+    }
     if (ch.type === 'location') return '場所・地区：' + name + ' → ' + ch['場所'] + ' / ' + (ch['地区'] || '地区なし');
     if (ch.type === 'deleteWaiting') return '待機から削除：' + name;
     if (ch.type === 'end') return (ch.scope === 'person' ? '終了（全部の枠）：' : '減回：') + name + '　' + md(ch.last) + 'まで（' + ch.reason + '）';
