@@ -437,6 +437,7 @@
     if (r['開始日'] && r['開始日'] > S.view) notes.push(md(r['開始日']) + 'から');
     if (r['終了日']) notes.push(md(r['終了日']) + 'まで');
     if (stt === '入院中') notes.push('入院中');
+    if (r['地区'] && !S.areas[r['地区']]) notes.push('位置未確認');
     var sub = [shortArea(r['地区']) || '地区なし'].concat(notes).join('・');
     var c = el('div', { cls: 'vc' + (r['開始日'] && r['開始日'] > S.view ? ' future' : ''),
       style: 'background:' + (H.STATUS_COLORS[stt] || '#fff') + ';border-left-color:' + cityColor(r['地区']) }, [
@@ -596,6 +597,7 @@
     var name = ch['利用者'] || row['利用者'] || '';
     var to = (ch['曜日'] || '') + ' ' + (ch['担当'] || '') + ' ' + (ch['開始'] || '');
     if (ch.type === 'addWaiting') return '待機に追加：' + name;
+    if (ch.type === 'location') return '場所・地区：' + name + ' → ' + ch['場所'] + ' / ' + (ch['地区'] || '地区なし');
     if (ch.type === 'deleteWaiting') return '待機から削除：' + name;
     if (ch.type === 'end') return (ch.scope === 'person' ? '終了（全部の枠）：' : '減回：') + name + '　' + md(ch.last) + 'まで（' + ch.reason + '）';
     if (ch.type === 'unend') return '終了・減回の取り消し：' + name;
@@ -741,6 +743,27 @@
         } })])]);
   }
 
+  function areaInput(value) {
+    var input = el('input', {type:'text', value:value || '', placeholder:'例：貴生川（候補から選択。候補なしは正式な地区名）', list:'areaCandidates', autocomplete:'off'});
+    var list = el('datalist', {id:'areaCandidates'});
+    S.d.areas.forEach(function (a) { list.appendChild(el('option', {value:a['地区']})); });
+    return {input:input, list:list};
+  }
+  function locationForm(r) {
+    var place = selectOf(S.d.places.map(function (p) { return p['場所']; }), r['場所']);
+    var area = areaInput(r['地区']);
+    openSheet([
+      el('h2', {text:'場所・地区を変更'}),
+      el('div', {cls:'muted', text:'この方の続いている枠すべてに適用します。地区名を入力して候補から選んでください。'}),
+      el('label', {cls:'lb',text:'場所'}), place,
+      el('label', {cls:'lb',text:'地区（市町＋大字）'}), area.input, area.list,
+      el('div', {cls:'muted',text:'候補にない地区名も保存できます。その場合は位置未確認となり、移動時間は要確認です。'}),
+      el('div', {cls:'btns'}, [
+        el('button',{cls:'sub',text:'やめる',onclick:closeSheet}),
+        el('button',{text:'下書きに入れる',onclick:function () {
+          closeSheet(); save([{type:'location',id:r['台帳ID'],'場所':place.value,'地区':area.input.value.trim()}], '場所・地区を変更');
+        }})])]);
+  }
   // ── 詳細（押しただけのとき）──
   function openDetail(r) {
     var waiting = H.parseHm(r['開始']) === null;
@@ -766,10 +789,11 @@
       el('h2', { text: r['利用者'] }),
       el('table', { cls: 'kv' }, [
         kv('枠', waiting ? '待機（まだ置いていません）' : r['曜日'] + ' ' + r['担当'] + ' ' + r['開始']),
-        kv('場所', r['場所']), kv('地区', r['地区']), kv('頻度', r['頻度']), kv('状態', H.shownStatus(r)),
+        kv('場所', r['場所']), kv('地区', r['地区'] ? r['地区'] + (S.areas[r['地区']] ? '' : '（位置未確認・移動時間は要確認）') : '地区なし'), kv('頻度', r['頻度']), kv('状態', H.shownStatus(r)),
         kv('開始日', r['開始日']), kv('終了日', r['終了日'] ? r['終了日'] + (r['終了理由'] ? '（' + r['終了理由'] + '）' : '') : ''),
         kv('保険区分', r['保険区分']), kv('代行優先度', r['代行優先度']),
         kv('メモ', r['メモ']), kv('最後に変えた人', r['更新者'] ? r['更新者'] + '（' + r['更新日時'] + '）' : '')]),
+      el('button', {cls:'sub', text:'場所・地区を変更', onclick:function () { locationForm(r); }}),
       acts.length ? el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:12px' }, acts) : null,
       acts.length ? el('div', { cls: 'muted', style: 'margin-top:6px', text: 'どれも下書きに入ります。「まとめて確定」で保存されます。' }) : null,
       el('div', { cls: 'btns' }, [
@@ -785,7 +809,7 @@
     var sel = function (opts) { var s = el('select'); opts.forEach(function (o) { s.appendChild(el('option', { value: o[0], text: o[1] })); }); return s; };
     var name = el('input', { type: 'text', placeholder: '氏名' });
     var place = sel(S.d.places.map(function (p) { return [p['場所'], p['場所']]; }));
-    var area = sel([['', '分からない（移動は20分で見る）']].concat(S.d.areas.map(function (a) { return [a['地区'], a['地区']]; })));
+    var areaBox = areaInput(''), area = areaBox.input;
     var freq = sel(H.FREQS.map(function (f) { return [f, f]; }));
     var ins = sel([['', '（なし・介護）'], ['医', '医療'], ['支', '要支援']]);
     var pr = sel([['', '（なし）'], ['A', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D']]);
@@ -794,7 +818,7 @@
     openSheet([
       el('h2', { text: '新規の方を待機に足す' }),
       el('label', { cls: 'lb', text: '利用者' }), name, el('label', { cls: 'lb', text: '場所' }), place,
-      el('label', { cls: 'lb', text: '地区（市町＋大字）' }), area, el('label', { cls: 'lb', text: '頻度' }), freq,
+      el('label', { cls: 'lb', text: '地区（市町＋大字）' }), area, areaBox.list, el('label', { cls: 'lb', text: '頻度' }), freq,
       el('label', { cls: 'lb', text: '保険区分' }), ins, el('label', { cls: 'lb', text: '代行優先度' }), pr,
       el('label', { cls: 'lb', text: 'メモ' }), memo, err,
       el('div', { cls: 'btns' }, [

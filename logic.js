@@ -450,7 +450,7 @@ function ledgerFreeSlots(rows, places, settings, asOf, areas, opts) {
             last.near === hit.near && parseHm(last.to) + settings.slotMin === t) {
           last.to = hm;
         } else {
-          out.push({ weekday: day, staff: staff, from: hm, to: hm, weeks: hit.weeks, since: hit.since, near: hit.near });
+          out.push({ weekday: day, staff: staff, from: hm, to: hm, weeks: hit.weeks, since: hit.since, near: hit.near, unknownArea: !!opts.area && !(areas && areas[opts.area]) });
         }
       }
     });
@@ -463,6 +463,7 @@ function freeSlotNote(r) {
   var notes = [];
   if (r.weeks && r.weeks !== '毎週') notes.push(r.weeks + 'のみ');
   if (r.since) notes.push(+r.since.slice(5, 7) + '/' + (+r.since.slice(8, 10)) + 'から');
+  if (r.unknownArea) notes.push('位置未確認：移動時間は要確認');
   if (r.near) notes.push('要相談：前後の移動10分');
   return notes.join('・');
 }
@@ -498,6 +499,7 @@ function placementCheck(rows, places, settings, areas, asOf, cand) {
     if (gap < need) return { level: 'ng', reason: who + ' ' + side + 'の移動が' + need + '分取れません' };
     if (gap < strict && level === 'ok') { level = 'near'; reason = who + ' ' + side + 'の移動が' + gap + '分（近いので可・要相談）'; }
   }
+  if (level === 'ok' && str_(cand['地区']) && !(areas && areas[str_(cand['地区'])])) return {level:'near', reason:'位置未確認の地区です。移動時間を確認してください'};
   return { level: level, reason: reason };
 }
 
@@ -548,6 +550,14 @@ function applyChange(rows, change, today, newId, who, now) {
     var id = str_(r['利用者ID']);
     return id ? str_(x['利用者ID']) === id : str_(x['利用者']) === str_(r['利用者']);
   };
+  if (type === 'location') {
+    out.filter(function (x) { return samePerson(x) && !(str_(x['終了日']) && str_(x['終了日']) < today); }).forEach(function (x) {
+      var before = str_(x['場所']) + ' / ' + str_(x['地区']);
+      x['場所'] = str_(change['場所']) || '在宅'; x['地区'] = str_(change['地区']);
+      touch(x); log('場所・地区の変更', x, before, x['場所'] + ' / ' + x['地区'], today);
+    });
+    return { rows: out, history: history };
+  }
   if (type === 'end') {
     var last = str_(change.last), reason = str_(change.reason);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(last) || last < today) throw new Error('最終日を今日以降の日付で入れてください');
