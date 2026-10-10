@@ -374,7 +374,7 @@
     // 曜日のタブ
     var dbox = $('days'); clear(dbox);
     st.weekdays.concat(['全']).forEach(function (w) {
-      dbox.appendChild(el('button', { cls: w === S.day ? 'on' : '', text: w === '全' ? '全曜日' : w + '曜日',
+      dbox.appendChild(el('button', { cls: w === S.day ? 'on' : '', text: w,
         onclick: function () { S.day = w; store(DAY_KEY, w); render(); } }));
     });
     var vd = el('input', { type: 'date', value: S.view, min: d.today, style: 'width:auto;padding:6px 8px;font-size:14px', title: '表示する日' });
