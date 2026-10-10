@@ -757,7 +757,7 @@
     var name = el('input', {type:'text',value:r['利用者'] || '',maxlength:'100',placeholder:'正式な利用者名', 'aria-label':'利用者名'});
     var err = el('div', {cls:'muted',style:'color:#b00'});
     openSheet([
-      el('h2', {text:'利用者情報を変更'}),
+      el('h2', {text:'利用者名を変更'}),
       el('div', {cls:'muted',text:r['利用者ID'] ? '同じ利用者IDの続いている枠すべての名前を変更します。曜日・時間は変わりません。' : 'このカードの名前を変更します。同じ仮名の別カードは変更しません。'}),
       el('label', {cls:'lb',text:'利用者名（仮名から正式名への変更）'}), name, err,
       el('div', {cls:'btns'}, [
@@ -812,8 +812,9 @@
         kv('開始日', r['開始日']), kv('終了日', r['終了日'] ? r['終了日'] + (r['終了理由'] ? '（' + r['終了理由'] + '）' : '') : ''),
         kv('保険区分', r['保険区分']), kv('代行優先度', r['代行優先度']),
         kv('メモ', r['メモ']), kv('最後に変えた人', r['更新者'] ? r['更新者'] + '（' + r['更新日時'] + '）' : '')]),
-      el('button', {cls:'sub', text:'利用者情報を変更', onclick:function () { clientInfoForm(r); }}),
-      el('button', {cls:'sub', text:'場所・地区を変更', onclick:function () { locationForm(r); }}),
+      el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' }, [
+        act('利用者名を変更', function () { clientInfoForm(r); }),
+        act('場所・地区を変更', function () { locationForm(r); })]),
       acts.length ? el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:12px' }, acts) : null,
       acts.length ? el('div', { cls: 'muted', style: 'margin-top:6px', text: 'どれも下書きに入ります。「まとめて確定」で保存されます。' }) : null,
       el('div', { cls: 'btns' }, [
