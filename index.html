@@ -399,7 +399,8 @@
     days.forEach(function (day, di) {
       st.staff.forEach(function (staff, si) {
         var gi = 1 + st.weekdays.indexOf(day) * st.staff.length + si;
-        var head = el('div', { cls: 'colhead' }, [
+        var dayColors = {'月':'#fceeee','火':'#edf6ee','水':'#eaf5fc','木':'#f2eef9','金':'#fff8df'};
+        var head = el('div', { cls: 'colhead', style: 'background:' + (dayColors[day] || '#fafafa') }, [
           el('b', { text: (days.length > 1 ? day + ' ' : '') + staff }),
           el('small', { text: grid.values[2][gi] + '件・移動' + grid.values[grid.values.length - 1][gi] + '分' })]);
         var body = el('div', { cls: 'colbody', style: 'height:' + height + 'px' });
