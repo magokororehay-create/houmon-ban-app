@@ -9,6 +9,7 @@
 <style>
   :root{--bg:#f5f5f7;--card:#fff;--ink:#1d1d1f;--mute:#8a8a8e;--line:#e6e6ea;--pri:#0f7c80;--pri-weak:#e3f3f3;--warn:#fff3cd;--err:#ffe8e8;--px:10px;}
   *{box-sizing:border-box;}
+  html,body{max-width:100%;overflow-x:hidden;}
   body{font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;margin:0;background:var(--bg);color:var(--ink);}
   .narrow{max-width:420px;margin:40px auto;padding:0 16px;}
   .card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
@@ -37,10 +38,10 @@
   .days{display:flex;gap:6px;padding:10px 12px 0;}
   .days button{flex:1;max-width:120px;background:#e6e8eb;color:var(--ink);padding:9px 4px;}
   .days button.on{background:var(--pri);color:#fff;}
-  .layout{display:flex;gap:12px;padding:10px 12px 90px;align-items:flex-start;}
-  .boardwrap{flex:1;min-width:0;overflow-x:auto;background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .layout{width:100%;min-width:0;display:flex;gap:12px;padding:10px 12px 90px;align-items:flex-start;}
+  .boardwrap{flex:1;min-width:0;max-width:100%;overflow-x:auto;background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
   aside{width:250px;flex:none;}
-  @media (max-width:820px){ .layout{flex-direction:column;} aside{width:100%;} }
+  @media (max-width:820px){ .layout{flex-direction:column;} .boardwrap{width:100%;flex:none;} aside{width:100%;} }
   @media (max-width:600px){ .bar{gap:6px;padding:8px;} .bar h1{font-size:15px;} .bar button{padding:6px 8px;font-size:13px;} #me,.bar .sp{display:none;} .layout{padding:8px 6px 90px;} }
   /* 盤面 */
   .board{display:flex;min-width:100%;}
@@ -78,7 +79,7 @@
   .msg{padding:12px;border-radius:10px;font-size:15px;white-space:pre-line;box-shadow:0 2px 8px rgba(0,0,0,.15);}
   .msg.err{background:var(--err);color:#b00;} .msg.ok{background:var(--pri-weak);color:var(--pri);} .msg.wait{background:#1d1d1f;color:#fff;}
   .ovl{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:35;padding:16px;}
-  .sheet{background:var(--card);width:100%;max-width:460px;max-height:88vh;overflow-y:auto;border-radius:16px;padding:16px;}
+  .sheet{min-width:0;flex-shrink:1;background:var(--card);width:100%;max-width:460px;max-height:88vh;overflow-y:auto;border-radius:16px;padding:16px;}
   .sheet h2{font-size:17px;margin:0 0 8px;}
   .sheet .btns{display:flex;gap:10px;margin-top:16px;}
   .sheet .btns button{flex:1;padding:12px 8px;}
