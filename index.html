@@ -401,10 +401,11 @@
         var gi = 1 + st.weekdays.indexOf(day) * st.staff.length + si;
         var dayColors = {'月':'#f9dfe4','火':'#e0efdc','水':'#dceefa','木':'#e9e0f5','金':'#fff0bf'};
         var maxVisits = {'末廣':7,'関札':7,'松岡':7,'伊地知':6};
-        var full = maxVisits[staff] && Number(grid.values[2][gi]) >= maxVisits[staff];
+        var staffKey = String(staff).replace(/\s/g, '').replace(/さん$/, '');
+        var full = maxVisits[staffKey] && Number(grid.values[2][gi]) >= maxVisits[staffKey];
         var head = el('div', { cls: 'colhead', style: 'background:' + (dayColors[day] || '#fafafa') }, [
           el('b', {}, [document.createTextNode(days.length > 1 ? day + ' ' : ''),
-            full ? el('span', {text:'★',style:'color:#e8ae00',title:'1日の訪問件数が上限に達しています'}) : null,
+            full ? el('span', {text:'★',style:'color:#e8ae00;display:inline-block;font-family:Arial,sans-serif',title:'1日の訪問件数が上限に達しています'}) : null,
             document.createTextNode(staff)]),
           el('small', { text: grid.values[2][gi] + '件・移動' + grid.values[grid.values.length - 1][gi] + '分' })]);
         var body = el('div', { cls: 'colbody', style: 'height:' + height + 'px' });
@@ -497,7 +498,7 @@
   // マウスは5px動かしたら、指は長押し（0.3秒）してからドラッグを始める。動かさずに離したら詳細を開く。
   function press(e, r, c) {
     if (e.button && e.button !== 0) return;
-    var p = { x: e.clientX, y: e.clientY, touch: e.pointerType !== 'mouse', started: false, timer: null };
+    var p = { x: e.clientX, y: e.clientY, touch: e.pointerType !== 'mouse', started: false, moved: false, timer: null };
     var rect = c.getBoundingClientRect();
     var begin = function (ev) {
       p.started = true;
@@ -517,14 +518,18 @@
         if (dist > 5) begin(ev);
         return;
       }
+      if (Math.abs(ev.clientX - p.x) + Math.abs(ev.clientY - p.y) > 10) p.moved = true;
       ev.preventDefault();
       moveDrag(ev);
     };
     var onUp = function (ev) {
       var was = p.started;
       cleanup();
-      if (!was) return;
       c.suppressClickUntil = Date.now() + 1000;
+      if (!was || (p.touch && !p.moved)) {
+        if (was) cancelDrag();
+        openDetail(r); return;
+      }
       endDrag(ev);
     };
     var cleanup = function () {
@@ -587,9 +592,9 @@
   }
 
   // ── 確定の前の確認 ──
-  function openSheet(kids) { var s = $('sheet'); clear(s); kids.forEach(function (k) { if (k) s.appendChild(k); }); $('ovl').classList.remove('hidden'); }
+  function openSheet(kids) { $('ovl').openedAt = Date.now(); var s = $('sheet'); clear(s); kids.forEach(function (k) { if (k) s.appendChild(k); }); $('ovl').classList.remove('hidden'); }
   function closeSheet() { $('ovl').classList.add('hidden'); clear($('sheet')); }
-  $('ovl').addEventListener('click', function (e) { if (e.target === this) closeSheet(); });
+  $('ovl').addEventListener('click', function (e) { if (e.target === this && Date.now() - (this.openedAt || 0) > 400) closeSheet(); });
 
   // ── 下書き：1つ戻す・捨てる・まとめて確定 ──
   $('btnUndo').addEventListener('click', function () {
